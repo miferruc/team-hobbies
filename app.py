@@ -137,62 +137,72 @@ def adjust_teams(teams: Dict[str, List[str]]) -> Dict[str, List[str]]:
     return teams_adjusted
 
 # ───────────── UI: Sidebar Login/Signup ─────────────
+# ───────────── Sidebar: Auth Supabase ─────────────
 with st.sidebar:
     st.subheader("🔐 Accesso")
 
     if supabase is None:
         st.info("Supabase non configurato (manca SUPABASE_URL/KEY nei secrets).")
     else:
-        # Se NON sei loggato → mostra tab Entra / Registrati
-        if st.session_state.auth_user is None:
+        logged = st.session_state.get("auth_user")
+
+        if not logged:
             tab_login, tab_signup = st.tabs(["Entra", "Registrati"])
 
-            # ----- TAB: ENTRA -----
+            # ------- ENTRA -------
             with tab_login:
-                email = st.text_input("Email", key="login_email")
-                pwd = st.text_input("Password", type="password", key="login_pwd")
+                email = st.text_input("Email", key="auth_login_email")
+                pwd = st.text_input("Password", type="password", key="auth_login_pwd")
                 if st.button("Accedi"):
                     try:
                         res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
                         st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                        # assicuro il profilo esista
+                        try:
+                            prof = supabase.table("profiles").select("id").eq("id", res.user.id).single().execute()
+                            if not getattr(prof, "data", None):
+                                supabase.table("profiles").insert({
+                                    "id": res.user.id, "email": res.user.email, "nome": ""
+                                }).execute()
+                        except Exception:
+                            pass
                         st.success(f"Benvenuto {res.user.email} 👋")
                         st.experimental_rerun()
                     except Exception as e:
                         st.error(f"Login fallito: {e}")
 
-            # ----- TAB: REGISTRATI -----
+            # ------- REGISTRATI -------
             with tab_signup:
-                email_s = st.text_input("Email", key="signup_email")
-                pwd_s = st.text_input("Password", type="password", key="signup_pwd")
-                nome_s = st.text_input("Nome (profilo)")
+                s_email = st.text_input("Email", key="auth_signup_email")
+                s_pwd   = st.text_input("Password", type="password", key="auth_signup_pwd")
+                s_nome  = st.text_input("Nome (profilo)", key="auth_signup_nome")
                 if st.button("Crea account"):
                     try:
-                        # 1) Crea l'utente
-                        res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
+                        # 1) crea utente (se conferma email è ON, invia mail)
+                        supabase.auth.sign_up({"email": s_email, "password": s_pwd})
 
-                        # 2) Forza subito il login (così auth.uid() esiste per la RLS)
-                        login = supabase.auth.sign_in_with_password({"email": email_s, "password": pwd_s})
-
-                        # 3) Ora puoi salvare/aggiornare il profilo (rispetta la policy RLS)
-                        if login and login.user:
+                        # 2) prova login subito (funziona se conferma email è OFF)
+                        try:
+                            login = supabase.auth.sign_in_with_password({"email": s_email, "password": s_pwd})
+                        except Exception as e2:
+                            login = None
+                            # Se conferma email è ON, tipicamente qui ritorna "Email not confirmed"
+                            st.info("📧 Controlla l'email per confermare l'account, poi fai **Entra**.")
+                        
+                        # 3) se login riuscito, crea/aggiorna profilo e logga
+                        if login and getattr(login, "user", None):
                             try:
                                 supabase.table("profiles").upsert({
-                                    "id": login.user.id,
-                                    "email": login.user.email,
-                                    "nome": nome_s
+                                    "id": login.user.id, "email": login.user.email, "nome": s_nome
                                 }).execute()
                             except Exception:
-                                pass  # se la tabella tarda ad aggiornarsi, non bloccare il flusso
-
+                                pass
                             st.session_state.auth_user = {"id": login.user.id, "email": login.user.email}
                             st.success("Account creato! Sei dentro ✅")
                             st.experimental_rerun()
-                        else:
-                            st.info("Account creato. Controlla l'email per confermare e poi accedi.")
                     except Exception as e:
                         st.error(f"Registrazione fallita: {e}")
         else:
-            # Già loggato
             me = st.session_state.auth_user
             st.success(f"Connesso come: {me['email']}")
             if st.button("Esci"):
