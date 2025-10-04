@@ -8,14 +8,13 @@ from io import BytesIO
 import os
 import datetime
 
-# ----------------- Config -----------------
+# NEW ▶ Supabase client
+from supabase import create_client
+
+# ───────────── Config ─────────────
 DATA_FILE = Path("responses.csv")
 MATERIE = [
-    "Matematica Finanziaria",
-    "Diritto Commerciale",
-    "Diritto Pubblico",
-    "Logistica",
-    "EGI"
+    "Matematica Finanziaria", "Diritto Commerciale", "Diritto Pubblico", "Logistica", "EGI"
 ]
 HOBBIES = [
     "Astronomia","Ballo","Birdwatching","Calcio","Camping","Ciclismo","Cinema","Coding",
@@ -25,7 +24,15 @@ HOBBIES = [
     "Skateboard","Surf","Teatro","Trekking","Viaggi","Volontariato","Yoga"
 ]
 
-# ----------------- Utils: storage CSV condiviso -----------------
+# NEW ▶ Inizializza Supabase dal secrets
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY", "")
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
+
+if "auth_user" not in st.session_state:
+    st.session_state.auth_user = None  # {id, email}
+
+# ───────────── Utils: storage CSV condiviso ─────────────
 def read_data() -> pd.DataFrame:
     if DATA_FILE.exists():
         return pd.read_csv(DATA_FILE)
@@ -41,7 +48,7 @@ def save_row(name: str, hobbies: List[str], fatte: List[str], dafare: List[str])
         df = df_new
     df.to_csv(DATA_FILE, index=False)
 
-# ----------------- Utils: IP/QR/Link -----------------
+# ───────────── Utils: IP/QR/Link ─────────────
 def get_local_ip() -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -60,28 +67,23 @@ def generate_qr_code(link: str):
     return buf.getvalue()
 
 def get_public_link() -> str:
-    # Se su Streamlit Cloud ho il secret PUBLIC_URL, uso quello
     try:
         url = st.secrets.get("PUBLIC_URL", "").strip()
     except Exception:
         url = ""
     if url:
         return url
-    # fallback in locale
     local_ip = get_local_ip()
     port = os.environ.get("PORT", 8501)
     return f"http://{local_ip}:{port}"
 
-# ----------------- Utils: Team logic -----------------
+# ───────────── Utils: Team logic ─────────────
 def hobbies_in_common(members: pd.DataFrame) -> str:
     sets = [set(h.split(",")) for h in members["Hobbies"] if isinstance(h, str) and h]
     return ", ".join(sorted(set.intersection(*sets))) if sets else "Nessuno"
 
 def find_organizer(members: pd.DataFrame):
-    """
-    Organizzatore = chi ha fatto materie che gli altri devono ancora fare.
-    Ritorna (nome_organizzatore, 'materie spiegate').
-    """
+    """Organizzatore = chi ha fatto materie che gli altri devono ancora fare."""
     for _, row in members.iterrows():
         fatte = set([m for m in (row["Materie_Fatte"] or "").split(",") if m])
         others = members[members["Nome"] != row["Nome"]]
@@ -120,8 +122,7 @@ def adjust_teams(teams: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """Evita team da 1; se resta un solo team da 2, mostra acknowledge."""
     if not teams:
         return teams
-    teams_adjusted = {}
-    last_team = None
+    teams_adjusted, last_team = {}, None
     for tname, members in teams.items():
         if len(members) == 1:
             if last_team:
@@ -135,11 +136,74 @@ def adjust_teams(teams: Dict[str, List[str]]) -> Dict[str, List[str]]:
         st.warning("⚠️ Non ci sono matching forti. Vuoi comunque formare un team da 2 persone?")
     return teams_adjusted
 
-# ----------------- UI -----------------
+# ───────────── UI: Sidebar Login/Signup ─────────────
+with st.sidebar:
+    st.subheader("🔐 Accesso")
+
+    if supabase is None:
+        st.info("Supabase non configurato (manca SUPABASE_URL/KEY nei secrets).")
+    else:
+        if st.session_state.auth_user is None:
+            tab_login, tab_signup = st.tabs(["Entra", "Registrati"])
+
+            with tab_login:
+                email = st.text_input("Email", key="login_email")
+                pwd = st.text_input("Password", type="password", key="login_pwd")
+                if st.button("Accedi"):
+                    try:
+                        res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
+                        st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                        st.success(f"Benvenuto {res.user.email} 👋")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Login fallito: {e}")
+
+            with tab_signup:
+                email_s = st.text_input("Email", key="signup_email")
+                pwd_s = st.text_input("Password", type="password", key="signup_pwd")
+                nome_s = st.text_input("Nome (profilo)")
+                if st.button("Crea account"):
+                    try:
+                        res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
+                        # crea/aggiorna il profilo (id = id utente auth)
+                        if res.user:
+                            supabase.table("profiles").upsert({
+                                "id": res.user.id,
+                                "email": res.user.email,
+                                "nome": nome_s
+                            }).execute()
+                            st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                            st.success("Account creato! Sei dentro ✅")
+                            st.experimental_rerun()
+                        else:
+                            st.info("Controlla l'email per confermare l'account.")
+                    except Exception as e:
+                        st.error(f"Registrazione fallita: {e}")
+        else:
+            me = st.session_state.auth_user
+            st.success(f"Connesso come: {me['email']}")
+            if st.button("Esci"):
+                try:
+                    supabase.auth.sign_out()
+                except Exception:
+                    pass
+                st.session_state.auth_user = None
+                st.experimental_rerun()
+
+# ───────────── UI principale ─────────────
 st.title("🎯 Mini App – Team Hobbies + Materie")
 
+# Autofill del Nome dal profilo (se loggato)
+default_name = ""
+if supabase and st.session_state.auth_user:
+    try:
+        prof = supabase.table("profiles").select("nome").eq("id", st.session_state.auth_user["id"]).single().execute()
+        default_name = (prof.data or {}).get("nome") or ""
+    except Exception:
+        pass
+
 # Input utente
-name = st.text_input("Nome")
+name = st.text_input("Nome", value=default_name)
 hobbies = st.multiselect("Seleziona i tuoi hobby:", HOBBIES)
 fatte = st.multiselect("Materie fatte:", MATERIE)
 dafare = st.multiselect("Materie da fare:", MATERIE)
@@ -151,7 +215,7 @@ if st.button("Invia"):
     else:
         st.error("Inserisci nome + almeno un hobby.")
 
-# Mostra partecipanti
+# Partecipanti
 st.subheader("📋 Partecipanti")
 data = read_data()
 st.dataframe(data, use_container_width=True)
@@ -200,7 +264,6 @@ if st.button("Genera Team"):
         df_out = pd.DataFrame(rows)
         st.dataframe(df_out, use_container_width=True)
 
-        # download CSV dei team
         csv = df_out.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Scarica CSV dei team", data=csv, file_name="team_generati.csv", mime="text/csv")
 
