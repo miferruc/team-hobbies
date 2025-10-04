@@ -137,58 +137,35 @@ def adjust_teams(teams: Dict[str, List[str]]) -> Dict[str, List[str]]:
     return teams_adjusted
 
 # ───────────── UI: Sidebar Login/Signup ─────────────
-with st.sidebar:
-    st.subheader("🔐 Accesso")
+with tab_signup:
+    email_s = st.text_input("Email", key="signup_email")
+    pwd_s = st.text_input("Password", type="password", key="signup_pwd")
+    nome_s = st.text_input("Nome (profilo)")
+    if st.button("Crea account"):
+        try:
+            # 1) Crea l'utente
+            res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
 
-    if supabase is None:
-        st.info("Supabase non configurato (manca SUPABASE_URL/KEY nei secrets).")
-    else:
-        if st.session_state.auth_user is None:
-            tab_login, tab_signup = st.tabs(["Entra", "Registrati"])
+            # Alcune configurazioni inviano email di conferma.
+            # Noi forziamo subito il login: se la policy lo consente, andrà;
+            # altrimenti mostra un messaggio chiaro.
+            login = supabase.auth.sign_in_with_password({"email": email_s, "password": pwd_s})
 
-            with tab_login:
-                email = st.text_input("Email", key="login_email")
-                pwd = st.text_input("Password", type="password", key="login_pwd")
-                if st.button("Accedi"):
-                    try:
-                        res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
-                        st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-                        st.success(f"Benvenuto {res.user.email} 👋")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Login fallito: {e}")
+            # 2) Ora che esiste la sessione (auth.uid() NON è NULL), possiamo upsertare il profilo
+            if login and login.user:
+                supabase.table("profiles").upsert({
+                    "id": login.user.id,
+                    "email": login.user.email,
+                    "nome": nome_s
+                }).execute()
 
-            with tab_signup:
-                email_s = st.text_input("Email", key="signup_email")
-                pwd_s = st.text_input("Password", type="password", key="signup_pwd")
-                nome_s = st.text_input("Nome (profilo)")
-                if st.button("Crea account"):
-                    try:
-                        res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
-                        # crea/aggiorna il profilo (id = id utente auth)
-                        if res.user:
-                            supabase.table("profiles").upsert({
-                                "id": res.user.id,
-                                "email": res.user.email,
-                                "nome": nome_s
-                            }).execute()
-                            st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-                            st.success("Account creato! Sei dentro ✅")
-                            st.experimental_rerun()
-                        else:
-                            st.info("Controlla l'email per confermare l'account.")
-                    except Exception as e:
-                        st.error(f"Registrazione fallita: {e}")
-        else:
-            me = st.session_state.auth_user
-            st.success(f"Connesso come: {me['email']}")
-            if st.button("Esci"):
-                try:
-                    supabase.auth.sign_out()
-                except Exception:
-                    pass
-                st.session_state.auth_user = None
+                st.session_state.auth_user = {"id": login.user.id, "email": login.user.email}
+                st.success("Account creato! Sei dentro ✅")
                 st.experimental_rerun()
+            else:
+                st.info("Account creato. Controlla l'email per confermare e poi accedi.")
+        except Exception as e:
+            st.error(f"Registrazione fallita: {e}")
 
 # ───────────── UI principale ─────────────
 st.title("🎯 Mini App – Team Hobbies + Materie")
