@@ -14,7 +14,7 @@ from supabase import create_client
 # ───────────── Config ─────────────
 DATA_FILE = Path("responses.csv")
 MATERIE = [
-    "Matematica Finanziaria", "Diritto Commerciale", "Diritto Pubblico", "Logistica", "EGI"
+    "Matematica Finanziaria", "Diritto Commerciale", "Diritto Pubblico", "Logistica", "EGI", "statistica"
 ]
 HOBBIES = [
     "Astronomia","Ballo","Birdwatching","Calcio","Camping","Ciclismo","Cinema","Coding",
