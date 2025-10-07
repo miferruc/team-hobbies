@@ -318,27 +318,14 @@ col2.metric("Ultima attività", gruppi_studente[-1]['data_creazione'][:10] if gr
 col3.metric("Livello attuale", "In esplorazione 🚀")
 
 # =====================================================
-# 🧪 Sezione di test: crea gruppi fake
+# 🧪 Funzioni per gruppi fake (test)
 # =====================================================
-# =====================================================
-# 🧪 Sezione di test: crea gruppi fake
-# =====================================================
-st.markdown("---")
-st.subheader("🧪 Test automatico gruppi")
-
-if st.button("Genera gruppi di test"):
-    crea_gruppi_finti(user_id)
-
-if st.button("🧹 Elimina gruppi di test"):
-    pulisci_gruppi_finti(user_id)
-
 
 def pulisci_gruppi_finti(user_id):
     """
     Elimina tutti i gruppi collegati all'utente corrente.
     """
     try:
-        # Recupera i gruppi dell'utente
         res = supabase.table("gruppi").select("id").contains("membri", [user_id]).execute()
         gruppi = res.data or []
 
@@ -346,7 +333,6 @@ def pulisci_gruppi_finti(user_id):
             st.info("Nessun gruppo da eliminare.")
             return
 
-        # Cancella ogni gruppo trovato
         for g in gruppi:
             supabase.table("gruppi").delete().eq("id", g["id"]).execute()
 
@@ -355,9 +341,26 @@ def pulisci_gruppi_finti(user_id):
 
     except Exception as e:
         st.error(f"Errore durante la pulizia dei gruppi: {e}")
+
+# =====================================================
+# 🧪 Sezione di test: crea/elimina gruppi fake
+# =====================================================
+
+st.markdown("---")
+st.subheader("🧪 Test automatico gruppi")
+
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("Genera gruppi di test"):
+        crea_gruppi_finti(user_id)
+with col2:
+    if st.button("🧹 Elimina gruppi di test"):
+        pulisci_gruppi_finti(user_id)
+
 # =====================================================
 # 🧪 fine gruppi fake
 # =====================================================
+
 
 
 # ───────────── UI PRINCIPALE ─────────────
