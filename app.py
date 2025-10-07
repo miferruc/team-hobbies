@@ -272,7 +272,7 @@ pagina = [k for k, v in menu_labels.items() if v == scelta][0]
 # =====================================================
 # 🔀 Routing logico in base alla scelta
 # =====================================================
-if pagina == "👤 Profilo Studente":
+if pagina == "profilo":
     # Se il profilo non esiste, mostra il setup
     if profile_data is None or st.session_state.get("show_setup"):
         st.warning("🧩 Profilo incompleto o in modifica: completa il setup.")
@@ -286,14 +286,14 @@ if pagina == "👤 Profilo Studente":
 st.markdown("---")
 if st.button("🔄 Aggiorna profilo"):
     st.session_state["show_setup"] = True
-    st.session_state["menu_principale"] = "👤 Profilo Studente"  # imposta la label visiva
+    st.session_state["menu_principale"] = "Profilo"  # imposta la label visiva
     st.rerun()
 
 
 
 
+elif pagina == "dashboard":
 
-elif pagina == "🎓 Dashboard Studente":
     user_id = st.session_state.auth_user["id"]
     st.title("🎓 Dashboard Studente")
 
