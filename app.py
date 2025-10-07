@@ -313,13 +313,6 @@ elif pagina == "🎓 Dashboard Studente":
             pulisci_gruppi_finti(user_id)
 
 
-if profile_data is None or st.session_state.get("show_setup"):
-    st.warning("🧩 Profilo incompleto o in modifica: completa il setup.")
-    setup_profilo()
-    st.session_state["show_setup"] = False
-else:
-    st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
-    show_profilo_completo(profile_data)
 
 import random
 from datetime import datetime, timedelta
