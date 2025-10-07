@@ -56,23 +56,35 @@ else:
 
 # ───────────── Step 2: Profilo Utente ─────────────
 def load_profile():
-    """Carica il profilo dell'utente loggato da Supabase."""
+    """Carica o crea il profilo dell'utente loggato su Supabase."""
     user = st.session_state.auth_user
     if not user:
         return None
-    try:
-        prof = supabase.table("profiles").select("*").eq("id", user["id"]).single().execute()
-        data = prof.data
-        if not data:
-            return None
-        required = ["nome"]
-        if any(not data.get(field) for field in required):
-            return None
-        return data
-    except Exception as e:
-        st.error(f"Errore nel caricamento del profilo: {e}")
-        return None
 
+    try:
+        # Verifica se esiste un profilo per questo utente
+        prof = supabase.table("profiles").select("*").eq("id", user["id"]).execute()
+        data = prof.data
+
+        # Se non esiste, crealo automaticamente
+        if not data:
+            supabase.table("profiles").insert({
+                "id": user["id"],
+                "email": user["email"],
+                "nome": ""
+            }).execute()
+            return None  # Torna None per far partire il setup
+
+        # Se esiste, prendi il primo record
+        profile = data[0]
+        required = ["nome"]
+        if any(not profile.get(field) for field in required):
+            return None
+        return profile
+
+    except Exception as e:
+        st.error(f"Errore nel caricamento/creazione del profilo: {e}")
+        return None
 
 def setup_profilo():
     """Mostra il form di setup per i nuovi utenti."""
