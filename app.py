@@ -29,8 +29,30 @@ SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY", "")
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
 
+# ───────────── Session & Access Control ─────────────
+# Inizializza la sessione utente e aggiunge controllo d'accesso.
+
 if "auth_user" not in st.session_state:
-    st.session_state.auth_user = None  # {id, email}
+    st.session_state.auth_user = None  # struttura base: {"id": ..., "email": ...}
+
+def require_login():
+    """
+    Verifica che l'utente sia loggato.
+    Se non lo è, blocca l'esecuzione dell'app e mostra un messaggio.
+    """
+    if st.session_state.auth_user is None:
+        st.warning("🔒 Devi effettuare il login per accedere all'app.")
+        st.stop()  # Interrompe tutto ciò che segue
+
+# ───────────── Step 1 Check ─────────────
+st.divider()
+st.subheader("✅ Step 1: Login Lock Check")
+
+# Se l'utente è loggato, mostra messaggio di conferma
+if st.session_state.auth_user:
+    st.success("🔓 Accesso consentito: l'utente è loggato correttamente.")
+else:
+    st.warning("🚫 Accesso bloccato: devi eseguire il login per continuare.")
 
 # ───────────── Utils: storage CSV condiviso ─────────────
 def read_data() -> pd.DataFrame:
@@ -215,7 +237,7 @@ with st.sidebar:
 
 
 # ───────────── UI principale ─────────────
-st.title("🎯 Mini App – Team Hobbies + Materie")
+st.title("Mini App – Team Hobbies + Materie")
 
 # Autofill del Nome dal profilo (se loggato)
 default_name = ""
