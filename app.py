@@ -254,13 +254,20 @@ profile_data = load_profile()
 
 st.sidebar.title("📚 Menu Principale")
 
-# Icone / sezioni (chiave aggiornata per mantenere stato)
-pagina = st.sidebar.radio(
+menu_labels = {
+    "profilo": "👤 Profilo Studente",
+    "dashboard": "🎓 Dashboard Studente"
+}
+
+scelta = st.sidebar.radio(
     "Naviga",
-    ["👤 Profilo Studente", "🎓 Dashboard Studente"],
+    list(menu_labels.values()),
     index=0,
-    key="pagina"  # ← questa è la chiave che permette di forzare la pagina attiva
+    key="menu_principale"
 )
+
+# Mappa il valore scelto a una chiave interna
+pagina = [k for k, v in menu_labels.items() if v == scelta][0]
 
 # =====================================================
 # 🔀 Routing logico in base alla scelta
@@ -279,8 +286,9 @@ if pagina == "👤 Profilo Studente":
 st.markdown("---")
 if st.button("🔄 Aggiorna profilo"):
     st.session_state["show_setup"] = True
-    st.session_state["pagina"] = "👤 Profilo Studente"  # forza la pagina corretta
+    st.session_state["menu_principale"] = "👤 Profilo Studente"  # imposta la label visiva
     st.rerun()
+
 
 
 
