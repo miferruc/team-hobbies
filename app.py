@@ -255,7 +255,39 @@ if profile_data is None or st.session_state.get("show_setup"):
 else:
     st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
     show_profilo_completo(profile_data)
-    dashboard_studente(profile_data)
+    # =====================================================
+# 🧭 DASHBOARD STUDENTE – base layout
+# =====================================================
+st.markdown("---")
+st.subheader("🎓 Dashboard Studente")
+
+# Messaggio di benvenuto
+st.success(f"Benvenuto {profile_data['nome']}! Questa è la tua area personale.")
+
+# Controllo gruppi associati allo studente
+user_id = st.session_state.auth_user["id"]
+try:
+    res = supabase.table("gruppi").select("*").contains("membri", [user_id]).execute()
+    gruppi_studente = res.data if res.data else []
+except Exception as e:
+    st.error(f"Errore nel caricamento dei gruppi: {e}")
+    gruppi_studente = []
+
+# Mostra i gruppi o un messaggio se non ce ne sono
+if len(gruppi_studente) > 0:
+    st.markdown("### 📚 I tuoi gruppi passati:")
+    for g in gruppi_studente:
+        st.info(f"**{g['nome_gruppo']}** – creato il {g['data_creazione'][:10]}")
+else:
+    st.warning("🧩 Non hai ancora partecipato a nessuna lezione.\nPartecipa a una lezione per creare il tuo team!")
+
+# Mini statistiche (base)
+st.markdown("### 📊 Le tue mini statistiche")
+col1, col2, col3 = st.columns(3)
+col1.metric("Sessioni totali", len(gruppi_studente))
+col2.metric("Ultima attività", gruppi_studente[-1]['data_creazione'][:10] if gruppi_studente else "N/D")
+col3.metric("Livello attuale", "In esplorazione 🚀")
+
 
 
 
