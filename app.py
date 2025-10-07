@@ -255,6 +255,35 @@ if profile_data is None or st.session_state.get("show_setup"):
 else:
     st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
     show_profilo_completo(profile_data)
+
+import random
+from datetime import datetime, timedelta
+
+def crea_gruppi_finti(user_id, n=3):
+    """
+    Crea n gruppi casuali di test associati all'utente corrente.
+    """
+    nomi = ["Economia", "Marketing", "Finanza", "Statistica", "Management"]
+    gruppi_creati = []
+
+    for i in range(n):
+        nome_gruppo = f"{random.choice(nomi)} {random.randint(10,99)}/10"
+        data_creazione = (datetime.now() - timedelta(days=random.randint(0,30))).isoformat()
+        membri = [user_id]  # Array con l'ID utente come unico membro
+
+        try:
+            res = supabase.table("gruppi").insert({
+                "nome_gruppo": nome_gruppo,
+                "membri": membri,
+                "data_creazione": data_creazione
+            }).execute()
+            gruppi_creati.append(res.data)
+        except Exception as e:
+            st.error(f"Errore durante la creazione dei gruppi di test: {e}")
+
+    st.success(f"✅ Creati {len(gruppi_creati)} gruppi di test!")
+
+
     # =====================================================
 # 🧭 DASHBOARD STUDENTE – base layout
 # =====================================================
