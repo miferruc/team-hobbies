@@ -49,23 +49,90 @@ def load_profile():
         return None
 
 def setup_profilo():
-    """Form base per completare il profilo."""
+    """Form completo per il setup profilo utente."""
     st.subheader("🧭 Setup del tuo profilo")
-    st.info("Completa il tuo profilo per accedere all'app.")
+    st.info("Completa il tuo profilo per personalizzare i gruppi di studio.")
 
+    # ───────────── DATI BASE ─────────────
     nome = st.text_input("Il tuo nome completo:")
-    if st.button("Salva profilo"):
+    corso = st.selectbox("Corso di studi:", ["Economia"])  # altri corsi verranno aggiunti
+
+    # ───────────── MATERIE ─────────────
+    st.markdown("### 📘 Materie")
+    materie_fatte = st.multiselect(
+        "Materie già superate:",
+        ["Economia Aziendale", "Statistica", "Diritto Privato", "Microeconomia", "Marketing"],
+    )
+    materie_dafare = st.multiselect(
+        "Materie ancora da sostenere:",
+        ["Finanza", "Econometria", "Gestione Aziendale", "Macroeconomia", "Comunicazione"],
+    )
+
+    # ───────────── HOBBY ─────────────
+    st.markdown("### 🎨 Hobby e Interessi")
+    hobby = st.multiselect(
+        "Seleziona i tuoi hobby:",
+        ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Cucina", "Arte", "Volontariato"],
+    )
+
+    # ───────────── APPROCCIO ─────────────
+    st.markdown("### 🧠 Approccio allo studio")
+    approccio = st.selectbox(
+        "Come preferisci studiare?",
+        [
+            "In gruppo e con confronto",
+            "Da solo, con concentrazione",
+            "In modo pratico (esercizi, esempi)",
+            "Analitico (teoria, approfondimento)",
+        ],
+    )
+
+    # ───────────── OBIETTIVI ─────────────
+    st.markdown("### 🎯 Obiettivi accademici")
+    obiettivi = st.multiselect(
+        "Cosa vuoi ottenere dallo studio universitario?",
+        [
+            "Passare gli esami a prescindere dal voto",
+            "Raggiungere una media del 30",
+            "Migliorare la comprensione delle materie",
+            "Creare connessioni e fare gruppo",
+            "Prepararmi per la carriera futura",
+        ],
+    )
+
+    # ───────────── SALVATAGGIO DATI ─────────────
+    if st.button("💾 Salva profilo completo"):
         if nome:
             try:
-                supabase.table("profiles").update({"nome": nome}).eq(
-                    "id", st.session_state.auth_user["id"]
-                ).execute()
-                st.success("Profilo completato ✅")
+                supabase.table("profiles").update(
+                    {
+                        "nome": nome,
+                        "corso": corso,
+                        "materie_fatte": materie_fatte,
+                        "materie_dafare": materie_dafare,
+                        "hobby": hobby,
+                        "approccio": approccio,
+                        "obiettivi": obiettivi,
+                    }
+                ).eq("id", st.session_state.auth_user["id"]).execute()
+                st.success("Profilo aggiornato con successo ✅")
                 st.rerun()
             except Exception as e:
                 st.error(f"Errore nel salvataggio del profilo: {e}")
         else:
-            st.warning("Inserisci un nome prima di salvare.")
+            st.warning("Inserisci almeno il nome per continuare.")
+
+def show_profilo_completo(profile):
+    """Mostra un riepilogo del profilo utente salvato su Supabase."""
+    st.subheader("📊 Il tuo profilo")
+    st.markdown(f"**👤 Nome:** {profile.get('nome', '-')}")
+    st.markdown(f"**🎓 Corso di studi:** {profile.get('corso', '-')}")
+    st.markdown(f"**📘 Materie già fatte:** {', '.join(profile.get('materie_fatte', []) or ['-'])}")
+    st.markdown(f"**🧮 Materie da fare:** {', '.join(profile.get('materie_dafare', []) or ['-'])}")
+    st.markdown(f"**🎨 Hobby:** {', '.join(profile.get('hobby', []) or ['-'])}")
+    st.markdown(f"**🧠 Approccio allo studio:** {profile.get('approccio', '-')}")
+    st.markdown(f"**🎯 Obiettivi:** {', '.join(profile.get('obiettivi', []) or ['-'])}")
+
 
 # ───────────── FUNZIONI UTILI ─────────────
 def get_public_link() -> str:
@@ -135,6 +202,8 @@ if profile_data is None:
     setup_profilo()
 else:
     st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
+    show_profilo_completo(profile_data)
+
 
 # ───────────── UI PRINCIPALE ─────────────
 st.title("🎓 Syntia MVP – Team Hobbies + Materie")
