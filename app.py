@@ -320,12 +320,44 @@ col3.metric("Livello attuale", "In esplorazione 🚀")
 # =====================================================
 # 🧪 Sezione di test: crea gruppi fake
 # =====================================================
+# =====================================================
+# 🧪 Sezione di test: crea gruppi fake
+# =====================================================
 st.markdown("---")
 st.subheader("🧪 Test automatico gruppi")
 
 if st.button("Genera gruppi di test"):
     crea_gruppi_finti(user_id)
 
+if st.button("🧹 Elimina gruppi di test"):
+    pulisci_gruppi_finti(user_id)
+
+
+def pulisci_gruppi_finti(user_id):
+    """
+    Elimina tutti i gruppi collegati all'utente corrente.
+    """
+    try:
+        # Recupera i gruppi dell'utente
+        res = supabase.table("gruppi").select("id").contains("membri", [user_id]).execute()
+        gruppi = res.data or []
+
+        if not gruppi:
+            st.info("Nessun gruppo da eliminare.")
+            return
+
+        # Cancella ogni gruppo trovato
+        for g in gruppi:
+            supabase.table("gruppi").delete().eq("id", g["id"]).execute()
+
+        st.success(f"🧹 Eliminati {len(gruppi)} gruppi di test.")
+        st.rerun()
+
+    except Exception as e:
+        st.error(f"Errore durante la pulizia dei gruppi: {e}")
+# =====================================================
+# 🧪 fine gruppi fake
+# =====================================================
 
 
 # ───────────── UI PRINCIPALE ─────────────
