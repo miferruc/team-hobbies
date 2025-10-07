@@ -275,11 +275,12 @@ if pagina == "👤 Profilo Studente":
         st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
         show_profilo_completo(profile_data)
 
-    # Pulsante per aggiornare il profilo
-    st.markdown("---")
-    if st.button("🔄 Aggiorna profilo"):
-        st.session_state["show_setup"] = True
-        st.experimental_rerun()
+ # Pulsante per aggiornare il profilo
+st.markdown("---")
+if st.button("🔄 Aggiorna profilo"):
+    st.session_state["show_setup"] = True
+    st.rerun()
+
 
 
 elif pagina == "🎓 Dashboard Studente":
