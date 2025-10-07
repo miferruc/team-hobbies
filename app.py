@@ -149,6 +149,41 @@ def show_profilo_completo(profile):
     st.markdown(f"**🧠 Approccio allo studio:** {profile.get('approccio', '-')}")
     st.markdown(f"**🎯 Obiettivi:** {', '.join(profile.get('obiettivi', []) or ['-'])}")
 
+def dashboard_studente(profile):
+    """Mostra la dashboard personale dello studente."""
+    st.markdown("## 🧩 Dashboard Studente")
+
+    # ───────────── MESSAGGIO BASE ─────────────
+    st.info("💬 Partecipa a una lezione per creare il tuo team!")
+
+    # ───────────── MINI STATS ─────────────
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📚 Materie coperte", len(profile.get("materie_fatte", [])))
+    with col2:
+        st.metric("🎨 Hobby", len(profile.get("hobby", [])))
+    with col3:
+        st.metric("👥 Gruppi passati", 0)  # placeholder per ora
+
+    st.divider()
+
+    # ───────────── GRUPPI PASSATI ─────────────
+    st.markdown("### 🗂️ I tuoi gruppi passati")
+    gruppi = []  # verranno caricati in seguito da Supabase
+    if gruppi:
+        for g in gruppi:
+            st.markdown(f"- **{g['nome_gruppo']}** ({g['materia']}) – {g['data']}")
+    else:
+        st.caption("Non hai ancora partecipato a nessun gruppo.")
+
+    st.divider()
+
+    # ───────────── MODIFICA PROFILO ─────────────
+    st.markdown("### ✏️ Modifica profilo")
+    if st.button("Apri setup profilo"):
+        st.session_state["show_setup"] = True
+        st.rerun()
+
 
 # ───────────── FUNZIONI UTILI ─────────────
 def get_public_link() -> str:
@@ -213,12 +248,15 @@ require_login()
 
 profile_data = load_profile()
 
-if profile_data is None:
-    st.warning("🧩 Profilo incompleto: vai al setup.")
+if profile_data is None or st.session_state.get("show_setup"):
+    st.warning("🧩 Profilo incompleto o in modifica: completa il setup.")
     setup_profilo()
+    st.session_state["show_setup"] = False
 else:
     st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
     show_profilo_completo(profile_data)
+    dashboard_studente(profile_data)
+
 
 
 # ───────────── UI PRINCIPALE ─────────────
