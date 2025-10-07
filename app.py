@@ -54,6 +54,56 @@ if st.session_state.auth_user:
 else:
     st.warning("🚫 Accesso bloccato: devi eseguire il login per continuare.")
 
+# ───────────── Step 2: Profilo Utente ─────────────
+def load_profile():
+    """Carica il profilo dell'utente loggato da Supabase."""
+    user = st.session_state.auth_user
+    if not user:
+        return None
+    try:
+        prof = supabase.table("profiles").select("*").eq("id", user["id"]).single().execute()
+        data = prof.data
+        if not data:
+            return None
+        required = ["nome"]
+        if any(not data.get(field) for field in required):
+            return None
+        return data
+    except Exception as e:
+        st.error(f"Errore nel caricamento del profilo: {e}")
+        return None
+
+
+def setup_profilo():
+    """Mostra il form di setup per i nuovi utenti."""
+    st.subheader("🧭 Setup del tuo profilo")
+    st.info("Completa il tuo profilo per accedere all'applicazione.")
+
+    nome = st.text_input("Il tuo nome completo:")
+    if st.button("Salva profilo"):
+        if nome:
+            try:
+                supabase.table("profiles").update({"nome": nome}).eq("id", st.session_state.auth_user["id"]).execute()
+                st.success("Profilo completato ✅")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Errore nel salvataggio del profilo: {e}")
+        else:
+            st.warning("Inserisci un nome prima di salvare.")
+
+
+# ───────────── Step 2 Check ─────────────
+require_login()  # blocca chi non è loggato
+
+profile_data = load_profile()
+
+if profile_data is None:
+    st.warning("🧩 Profilo incompleto: vai al setup.")
+    setup_profilo()
+else:
+    st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
+
+
 # ───────────── Utils: storage CSV condiviso ─────────────
 def read_data() -> pd.DataFrame:
     if DATA_FILE.exists():
