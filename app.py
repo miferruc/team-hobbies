@@ -40,9 +40,25 @@ def load_profile():
             }).execute()
             return None
         profile = data[0]
-        required = ["nome"]
-        if any(not profile.get(f) for f in required):
+                # Campi obbligatori per considerare il profilo completo
+        required = [
+            "nome",
+            "corso",
+            "materie_fatte",
+            "materie_dafare",
+            "hobby",
+            "approccio",
+            "obiettivi",
+        ]
+
+        # Se manca almeno uno di questi campi → profilo incompleto
+        if any(
+            not profile.get(f)
+            or (isinstance(profile.get(f), list) and len(profile.get(f)) == 0)
+            for f in required
+        ):
             return None
+
         return profile
     except Exception as e:
         st.error(f"Errore nel caricamento/creazione profilo: {e}")
