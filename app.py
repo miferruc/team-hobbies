@@ -104,16 +104,6 @@ def setup_profilo():
             st.warning("Inserisci un nome prima di salvare.")
 
 
-# ───────────── Step 2 Check ─────────────
-require_login()  # blocca chi non è loggato
-
-profile_data = load_profile()
-
-if profile_data is None:
-    st.warning("🧩 Profilo incompleto: vai al setup.")
-    setup_profilo()
-else:
-    st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
 
 
 # ───────────── Utils: storage CSV condiviso ─────────────
@@ -297,6 +287,16 @@ with st.sidebar:
                 st.session_state.auth_user = None
                 st.rerun()
 
+# ───────────── Step 2 Check ─────────────
+require_login()  # blocca chi non è loggato
+
+profile_data = load_profile()
+
+if profile_data is None:
+    st.warning("🧩 Profilo incompleto: vai al setup.")
+    setup_profilo()
+else:
+    st.success(f"👋 Benvenuto {profile_data['nome']}! Il tuo profilo è completo.")
 
 # ───────────── UI principale ─────────────
 st.title("Mini App – Team Hobbies + Materie")
