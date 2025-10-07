@@ -254,12 +254,12 @@ profile_data = load_profile()
 
 st.sidebar.title("📚 Menu Principale")
 
-# Icone / sezioni
+# Icone / sezioni (chiave aggiornata per mantenere stato)
 pagina = st.sidebar.radio(
     "Naviga",
     ["👤 Profilo Studente", "🎓 Dashboard Studente"],
     index=0,
-    key="menu_principale"
+    key="pagina"  # ← questa è la chiave che permette di forzare la pagina attiva
 )
 
 # =====================================================
@@ -279,7 +279,9 @@ if pagina == "👤 Profilo Studente":
 st.markdown("---")
 if st.button("🔄 Aggiorna profilo"):
     st.session_state["show_setup"] = True
+    st.session_state["pagina"] = "👤 Profilo Studente"  # forza la pagina corretta
     st.rerun()
+
 
 
 
