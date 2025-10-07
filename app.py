@@ -189,7 +189,7 @@ with st.sidebar:
                         except Exception:
                             pass
                         st.success(f"Benvenuto {res.user.email} 👋")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Login fallito: {e}")
 
@@ -221,7 +221,7 @@ with st.sidebar:
                                 pass
                             st.session_state.auth_user = {"id": login.user.id, "email": login.user.email}
                             st.success("Account creato! Sei dentro ✅")
-                            st.experimental_rerun()
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Registrazione fallita: {e}")
         else:
@@ -233,7 +233,7 @@ with st.sidebar:
                 except Exception:
                     pass
                 st.session_state.auth_user = None
-                st.experimental_rerun()
+                st.rerun()
 
 
 # ───────────── UI principale ─────────────
