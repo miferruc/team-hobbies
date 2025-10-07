@@ -317,6 +317,14 @@ col1.metric("Sessioni totali", len(gruppi_studente))
 col2.metric("Ultima attività", gruppi_studente[-1]['data_creazione'][:10] if gruppi_studente else "N/D")
 col3.metric("Livello attuale", "In esplorazione 🚀")
 
+# =====================================================
+# 🧪 Sezione di test: crea gruppi fake
+# =====================================================
+st.markdown("---")
+st.subheader("🧪 Test automatico gruppi")
+
+if st.button("Genera gruppi di test"):
+    crea_gruppi_finti(user_id)
 
 
 
