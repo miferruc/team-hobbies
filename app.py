@@ -27,7 +27,8 @@ HOBBIES = [
 # NEW ▶ Inizializza Supabase dal secrets
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY", "")
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
+SUPABASE_SERVICE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # ───────────── Session & Access Control ─────────────
 # Inizializza la sessione utente e aggiunge controllo d'accesso.
