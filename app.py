@@ -291,7 +291,9 @@ if pagina == "profilo":
             st.rerun()
 
 elif pagina == "dashboard":
+    # =====================================================
     # 🔗 FASE 5A – JOIN VIA QR
+    # =====================================================
     query_params = st.query_params
     session_id = query_params.get("session_id", [None])[0] if query_params else None
 
@@ -301,13 +303,11 @@ elif pagina == "dashboard":
         st.warning("⚠️ Devi prima effettuare l'accesso per unirti alla sessione.")
         st.stop()
 
+    st.title("🎓 Dashboard Studente")
 
+    # --- 🔄 JOIN SESSIONE TRAMITE QR ---
     if session_id:
-        st.markdown("---")
-        st.subheader("📲 Accesso da QR Code")
-
         try:
-            # Verifica che la sessione esista
             res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
             if not res_sess.data:
                 st.error("❌ Sessione non trovata. Verifica il link.")
@@ -317,25 +317,26 @@ elif pagina == "dashboard":
 
                 user_id = st.session_state.auth_user["id"]
 
-                # Controlla se l'utente è già registrato
+                # 🔍 Verifica se già iscritto
                 res_check = supabase.table("participants").select("*") \
                     .eq("session_id", session_id).eq("user_id", user_id).execute()
 
                 if res_check.data:
                     st.warning("⚠️ Sei già iscritto a questa sessione.")
                 else:
-                    # Inserisce l'utente nella sessione
+                    # ✅ Aggiunge utente alla sessione
                     supabase.table("participants").insert({
                         "user_id": user_id,
                         "session_id": session_id
                     }).execute()
-
-                    st.success("✅ Ti sei unito alla sessione con successo!")
+                    st.success("✅ Ti sei unito con successo alla sessione!")
         except Exception as e:
-            st.error(f"Errore durante l'accesso alla sessione: {e}")
+            st.error(f"Errore durante il join della sessione: {e}")
 
+    # =====================================================
+    # 📊 FASE 5B–5C: DASHBOARD STUDENTE + GRUPPI
+    # =====================================================
     user_id = st.session_state.auth_user["id"]
-    st.title("🎓 Dashboard Studente")
 
     try:
         res = supabase.table("gruppi").select("*").contains("membri", [user_id]).execute()
@@ -368,13 +369,13 @@ elif pagina == "dashboard":
         if st.button("🧹 Elimina gruppi di test"):
             pulisci_gruppi_finti(user_id)
 
-    # --- 📊 FASE 5C – GRUPPO STUDENTE ---
+    # =====================================================
+    # 🎯 FASE 5C – GRUPPO STUDENTE
+    # =====================================================
     st.markdown("---")
     st.subheader("🎯 Il tuo gruppo di studio")
 
     try:
-        user_id = st.session_state.auth_user["id"]
-
         # 1️⃣ Trova se l'utente è iscritto a una sessione
         res_part = supabase.table("participants").select("session_id").eq("user_id", user_id).execute()
         if not res_part.data:
@@ -403,8 +404,6 @@ elif pagina == "dashboard":
                 st.warning("⏳ Non sei ancora stato assegnato a un gruppo. Attendi che l'admin completi il matching.")
     except Exception as e:
         st.error(f"Errore durante il caricamento del gruppo: {e}")
-
-    # --- FINE FASE 5C ---
 
     
 # =====================================================
