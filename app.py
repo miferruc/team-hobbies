@@ -237,6 +237,42 @@ if pagina == "profilo":
             st.rerun()
 
 elif pagina == "dashboard":
+        # 🔗 FASE 5A – JOIN VIA QR
+    query_params = st.query_params
+    session_id = query_params.get("session_id", [None])[0] if query_params else None
+
+    if session_id:
+        st.markdown("---")
+        st.subheader("📲 Accesso da QR Code")
+
+        try:
+            # Verifica che la sessione esista
+            res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
+            if not res_sess.data:
+                st.error("❌ Sessione non trovata. Verifica il link.")
+            else:
+                sessione = res_sess.data[0]
+                st.info(f"🎓 Sessione trovata: **{sessione['nome']}** – tema *{sessione['tema']}*")
+
+                user_id = st.session_state.auth_user["id"]
+
+                # Controlla se l'utente è già registrato
+                res_check = supabase.table("participants").select("*") \
+                    .eq("session_id", session_id).eq("user_id", user_id).execute()
+
+                if res_check.data:
+                    st.warning("⚠️ Sei già iscritto a questa sessione.")
+                else:
+                    # Inserisce l'utente nella sessione
+                    supabase.table("participants").insert({
+                        "user_id": user_id,
+                        "session_id": session_id
+                    }).execute()
+
+                    st.success("✅ Ti sei unito alla sessione con successo!")
+        except Exception as e:
+            st.error(f"Errore durante l'accesso alla sessione: {e}")
+
     user_id = st.session_state.auth_user["id"]
     st.title("🎓 Dashboard Studente")
 
