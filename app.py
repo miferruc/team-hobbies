@@ -270,8 +270,7 @@ elif pagina == "dashboard":
     with col2:
         if st.button("🧹 Elimina gruppi di test"):
             pulisci_gruppi_finti(user_id)
-
-elif pagina == "admin_panel":
+    
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
 # =====================================================
