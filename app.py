@@ -401,6 +401,43 @@ if sessioni:
             qr_buf = generate_qr_code(s["link_pubblico"])
             st.image(qr_buf, caption="QR Code sessione", width=180)
 
+                        # --- 👥 LISTA PARTECIPANTI SESSIONE ---
+            st.markdown("### 👥 Partecipanti iscritti")
+
+            try:
+                res_part = supabase.table("participants") \
+                    .select("user_id") \
+                    .eq("session_id", s["id"]).execute()
+
+                if res_part.data:
+                    partecipanti_ids = [p["user_id"] for p in res_part.data]
+
+                    # Recupera i profili degli utenti
+                    res_prof = supabase.table("profiles") \
+                        .select("email, nome") \
+                        .in_("id", partecipanti_ids).execute()
+
+                    partecipanti = [
+                        f"{p.get('nome', 'Sconosciuto')} ({p.get('email', 'no email')})"
+                        for p in res_prof.data
+                    ]
+
+                    # Mostra lista o selectbox
+                    st.selectbox(
+                        "Partecipanti registrati:",
+                        options=partecipanti,
+                        index=0 if partecipanti else None,
+                        key=f"sel_part_{s['id']}"
+                    )
+
+                    st.info(f"Totale partecipanti: **{len(partecipanti)}**")
+                else:
+                    st.warning("Nessuno studente ha ancora scansionato il QR code.")
+            except Exception as e:
+                st.error(f"Errore nel caricamento partecipanti: {e}")
+            # --- 👥 FINE LISTA PARTECIPANTI ---
+
+
             col1, col2 = st.columns(2)
             with col1:
                 if st.button(f"📋 Copia link ({s['id']})"):
