@@ -148,14 +148,39 @@ def show_profilo_completo(profile):
 
 # ───────────── FUNZIONI UTILI ─────────────
 def get_public_link() -> str:
-    return "https://team-hobbies.streamlit.app"
+    # 🔧 Inserisci l'URL reale della tua app (copialo dalla barra del browser Streamlit)
+    return "https://miferruc-team-hobbies-main.streamlit.app"
 
-def generate_qr_code(link: str):
-    img = qrcode.make(link)
+
+def generate_qr_code(link: str, session_name: str = None):
+    """Genera un QR code personalizzato con il nome della sessione."""
+    import qrcode
+    from PIL import Image, ImageDraw, ImageFont
+
+    # Genera QR base
+    qr_img = qrcode.make(link).convert("RGB")
+
+    # Se è stato passato un nome, aggiungilo sopra come testo
+    if session_name:
+        width, height = qr_img.size
+        new_img = Image.new("RGB", (width, height + 60), "white")
+        new_img.paste(qr_img, (0, 60))
+
+        draw = ImageDraw.Draw(new_img)
+        text = session_name[:40]  # limita testo lungo
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+        except:
+            font = ImageFont.load_default()
+        text_w, text_h = draw.textsize(text, font=font)
+        draw.text(((width - text_w) / 2, 20), text, fill="black", font=font)
+        qr_img = new_img
+
     buf = BytesIO()
-    img.save(buf, format="PNG")
+    qr_img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
 
 # ───────────── LOGIN/REGISTRAZIONE ─────────────
 with st.sidebar:
@@ -445,7 +470,7 @@ if st.button("🚀 Crea sessione"):
             st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
 
             # Genera e mostra QR code
-            qr_buf = generate_qr_code(public_link)
+            qr_buf = generate_qr_code(public_link, nome_standard)
             st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
             st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
 
