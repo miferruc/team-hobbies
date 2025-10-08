@@ -193,27 +193,26 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Login fallito: {e}")
 
-        # --- REGISTRAZIONE TAB ---
-with tab_signup:
-    email_s = st.text_input("Email", key="signup_email")
-    pwd_s = st.text_input("Password", type="password", key="signup_pwd")
+          # --- REGISTRAZIONE TAB ---
+        with tab_signup:
+            email_s = st.text_input("Email", key="signup_email")
+            pwd_s = st.text_input("Password", type="password", key="signup_pwd")
 
-    if st.button("Registrati"):
-        try:
-            # ✅ Controllo dominio consentito
-            allowed_domains = ["@studenti.unibg.it", "@unibg.it"]
-            # 👉 Aggiungi altri domini qui se necessario:
-            # allowed_domains += ["@altrodominio.it", "@azienda.com"]
+            if st.button("Registrati"):
+                try:
+                    # ✅ Controllo dominio consentito
+                    allowed_domains = ["@studenti.unibg.it", "@unibg.it"]
+                    # 👉 Aggiungi altri domini qui se necessario:
+                    # allowed_domains += ["@altrodominio.it", "@azienda.com"]
 
-            if not any(email_s.endswith(dom) for dom in allowed_domains):
-                st.error("❌ Registrazione consentita solo per email istituzionali UNIBG.")
-            else:
-                res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
-                st.success("Registrazione completata! Esegui ora l'accesso 👇")
+                    if not any(email_s.endswith(dom) for dom in allowed_domains):
+                        st.error("❌ Registrazione consentita solo per email istituzionali UNIBG.")
+                    else:
+                        res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
+                        st.success("Registrazione completata! Esegui ora l'accesso 👇")
 
-        except Exception as e:
-            st.error(f"Registrazione fallita: {e}")
-
+                except Exception as e:
+                    st.error(f"Registrazione fallita: {e}")
 
     else:
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
@@ -223,6 +222,7 @@ with tab_signup:
             st.rerun()
 
     st.sidebar.divider()
+
 
 # ───────────── BLOCCO ACCESSO + CONTROLLO PROFILO ─────────────
 require_login()
