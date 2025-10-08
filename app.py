@@ -280,65 +280,69 @@ elif pagina == "admin_panel":
     st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
     st.divider()
 
-    # --- FORM CREAZIONE SESSIONE ---
-    with st.form("form_crea_sessione"):
-        st.subheader("📅 Crea una nuova sessione")
-        materia = st.text_input("Materia della sessione:")
-        data_sessione = st.date_input("Data della lezione:")
+    # --- CREAZIONE SESSIONE ---
+    st.subheader("📅 Crea una nuova sessione")
 
-        # 🔧 Generazione automatica nome standardizzato
-        if materia and data_sessione:
-            nome_auto = f"{materia}_{data_sessione.strftime('%d_%m_%Y')}"
-        else:
-            nome_auto = ""
+    materia = st.text_input("Materia della sessione:")
+    data_sessione = st.date_input("Data della lezione:")
 
+    # 🔧 Generazione automatica nome standardizzato
+    if materia and data_sessione:
+        nome_auto = f"{materia}_{data_sessione.strftime('%d_%m_%Y')}"
+        st.markdown(f"🔍 **Nome generato automaticamente:** `{nome_auto}`")
+    else:
+        nome_auto = ""
+
+    # 🔧 Pulsante per modificare manualmente il nome
+    modifica_manual = st.checkbox("✏️ Modifica manualmente il nome", value=False)
+
+    if modifica_manual:
         nome_standard = st.text_input(
-            "Nome standardizzato (generato automaticamente):",
+            "Nome personalizzato:",
             value=nome_auto,
-            key="nome_standard",
+            key="nome_standard_custom",
         )
+    else:
+        nome_standard = nome_auto
 
-        tema = st.selectbox(
-            "Tema nomi gruppi:",
-            ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"]
-        )
+    tema = st.selectbox(
+        "Tema nomi gruppi:",
+        ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"]
+    )
 
-        submit = st.form_submit_button("🚀 Crea sessione")
+    # --- PULSANTE CREAZIONE SESSIONE ---
+    if st.button("🚀 Crea sessione"):
+        if materia and nome_standard:
+            try:
+                from uuid import uuid4
+                session_id = str(uuid4())[:8]
 
-        if submit:
-            if materia and nome_standard:
-                try:
-                    # Crea session_id unico
-                    from uuid import uuid4
-                    session_id = str(uuid4())[:8]
+                # Crea link pubblico
+                public_link = f"{get_public_link()}?session_id={session_id}"
 
-                    # Crea link pubblico
-                    public_link = f"{get_public_link()}?session_id={session_id}"
+                # Salva su Supabase
+                supabase.table("sessions").insert({
+                    "id": session_id,
+                    "materia": materia,
+                    "data": str(data_sessione),
+                    "nome": nome_standard,
+                    "tema": tema,
+                    "link_pubblico": public_link,
+                    "creato_da": st.session_state.auth_user["id"],
+                    "timestamp": datetime.now().isoformat()
+                }).execute()
 
-                    # Salva su Supabase
-                    supabase.table("sessions").insert({
-                        "id": session_id,
-                        "materia": materia,
-                        "data": str(data_sessione),
-                        "nome": nome_standard,
-                        "tema": tema,
-                        "link_pubblico": public_link,
-                        "creato_da": st.session_state.auth_user["id"],
-                        "timestamp": datetime.now().isoformat()
-                    }).execute()
+                st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
 
-                    st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
+                # Genera e mostra QR code
+                qr_buf = generate_qr_code(public_link)
+                st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
+                st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
 
-                    # Genera e mostra QR code
-                    qr_buf = generate_qr_code(public_link)
-                    st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
-
-                    st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
-
-                except Exception as e:
-                    st.error(f"Errore nella creazione della sessione: {e}")
-            else:
-                st.warning("Compila tutti i campi obbligatori.")
+            except Exception as e:
+                st.error(f"Errore nella creazione della sessione: {e}")
+        else:
+            st.warning("Compila tutti i campi obbligatori.")
 
     st.divider()
 
@@ -375,6 +379,7 @@ elif pagina == "admin_panel":
                             st.error(f"Errore durante l'eliminazione: {e}")
     else:
         st.info("Nessuna sessione creata finora.")
+
 
 
 
