@@ -164,27 +164,56 @@ with st.sidebar:
     if st.session_state.auth_user is None:
         tab_login, tab_signup = st.tabs(["Entra", "Registrati"])
 
+        # --- LOGIN TAB ---
         with tab_login:
             email = st.text_input("Email", key="login_email")
             pwd = st.text_input("Password", type="password", key="login_pwd")
+
             if st.button("Accedi"):
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
                     st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+
+                    # 🔁 Se esiste una pending session dal QR → unisci l'utente automaticamente
+                    pending_session = st.session_state.get("pending_session_id")
+                    if pending_session:
+                        try:
+                            supabase.table("participants").insert({
+                                "user_id": res.user.id,
+                                "session_id": pending_session
+                            }).execute()
+                            st.success("✅ Ti sei unito automaticamente alla sessione!")
+                            del st.session_state["pending_session_id"]
+                        except Exception as e:
+                            st.error(f"Errore durante l’unione automatica alla sessione: {e}")
+
                     st.success(f"Benvenuto {res.user.email} 👋")
                     st.rerun()
+
                 except Exception as e:
                     st.error(f"Login fallito: {e}")
 
-        with tab_signup:
-            email_s = st.text_input("Email", key="signup_email")
-            pwd_s = st.text_input("Password", type="password", key="signup_pwd")
-            if st.button("Registrati"):
-                try:
-                    res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
-                    st.success("Registrazione completata! Esegui ora l'accesso 👇")
-                except Exception as e:
-                    st.error(f"Registrazione fallita: {e}")
+        # --- REGISTRAZIONE TAB ---
+with tab_signup:
+    email_s = st.text_input("Email", key="signup_email")
+    pwd_s = st.text_input("Password", type="password", key="signup_pwd")
+
+    if st.button("Registrati"):
+        try:
+            # ✅ Controllo dominio consentito
+            allowed_domains = ["@studenti.unibg.it", "@unibg.it"]
+            # 👉 Aggiungi altri domini qui se necessario:
+            # allowed_domains += ["@altrodominio.it", "@azienda.com"]
+
+            if not any(email_s.endswith(dom) for dom in allowed_domains):
+                st.error("❌ Registrazione consentita solo per email istituzionali UNIBG.")
+            else:
+                res = supabase.auth.sign_up({"email": email_s, "password": pwd_s})
+                st.success("Registrazione completata! Esegui ora l'accesso 👇")
+
+        except Exception as e:
+            st.error(f"Registrazione fallita: {e}")
+
 
     else:
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
@@ -240,6 +269,17 @@ elif pagina == "dashboard":
         # 🔗 FASE 5A – JOIN VIA QR
     query_params = st.query_params
     session_id = query_params.get("session_id", [None])[0] if query_params else None
+
+    # --- 🔐 FIX LOGIN VIA QR ---
+    query_params = st.query_params
+    session_id = query_params.get("session_id", [None])[0] if query_params else None
+
+    # Se arriva da QR ma non è loggato → salva session_id e reindirizza al login
+if session_id and st.session_state.auth_user is None:
+    st.session_state["pending_session_id"] = session_id
+    st.warning("⚠️ Devi prima effettuare l'accesso per unirti alla sessione.")
+    st.stop()
+
 
     if session_id:
         st.markdown("---")
