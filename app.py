@@ -307,6 +307,44 @@ elif pagina == "dashboard":
         if st.button("🧹 Elimina gruppi di test"):
             pulisci_gruppi_finti(user_id)
 
+    # --- 📊 FASE 5C – GRUPPO STUDENTE ---
+    st.markdown("---")
+    st.subheader("🎯 Il tuo gruppo di studio")
+
+    try:
+        user_id = st.session_state.auth_user["id"]
+
+        # 1️⃣ Trova se l'utente è iscritto a una sessione
+        res_part = supabase.table("participants").select("session_id").eq("user_id", user_id).execute()
+        if not res_part.data:
+            st.info("Non sei ancora iscritto a nessuna sessione.")
+        else:
+            session_ids = [p["session_id"] for p in res_part.data]
+
+            # 2️⃣ Cerca se l'utente è in un gruppo
+            res_group = supabase.table("gruppi").select("*").execute()
+            gruppo_utente = None
+            for g in res_group.data:
+                if user_id in g.get("membri", []):
+                    gruppo_utente = g
+                    break
+
+            if gruppo_utente:
+                st.success(f"🏷️ Gruppo: **{gruppo_utente['nome_gruppo']}**  \nTema: *{gruppo_utente.get('tema', '-') }*")
+
+                # Mostra membri del gruppo
+                membri_ids = gruppo_utente["membri"]
+                res_prof = supabase.table("profiles").select("nome, email").in_("id", membri_ids).execute()
+                membri_info = [f"• {p['nome']} ({p['email']})" for p in res_prof.data]
+                st.markdown("**Membri del gruppo:**")
+                st.markdown("\n".join(membri_info))
+            else:
+                st.warning("⏳ Non sei ancora stato assegnato a un gruppo. Attendi che l'admin completi il matching.")
+    except Exception as e:
+        st.error(f"Errore durante il caricamento del gruppo: {e}")
+
+    # --- FINE FASE 5C ---
+
     
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
