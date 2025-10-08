@@ -266,19 +266,15 @@ if pagina == "profilo":
             st.rerun()
 
 elif pagina == "dashboard":
-        # 🔗 FASE 5A – JOIN VIA QR
+    # 🔗 FASE 5A – JOIN VIA QR
     query_params = st.query_params
     session_id = query_params.get("session_id", [None])[0] if query_params else None
 
     # --- 🔐 FIX LOGIN VIA QR ---
-    query_params = st.query_params
-    session_id = query_params.get("session_id", [None])[0] if query_params else None
-
-    # Se arriva da QR ma non è loggato → salva session_id e reindirizza al login
-if session_id and st.session_state.auth_user is None:
-    st.session_state["pending_session_id"] = session_id
-    st.warning("⚠️ Devi prima effettuare l'accesso per unirti alla sessione.")
-    st.stop()
+    if session_id and st.session_state.auth_user is None:
+        st.session_state["pending_session_id"] = session_id
+        st.warning("⚠️ Devi prima effettuare l'accesso per unirti alla sessione.")
+        st.stop()
 
 
     if session_id:
