@@ -272,8 +272,95 @@ elif pagina == "dashboard":
             pulisci_gruppi_finti(user_id)
 
 elif pagina == "admin_panel":
+# =====================================================
+# 🧠 FASE 4 – COMMAND CENTER (ADMIN)
+# =====================================================
+elif pagina == "admin_panel":
     st.title("🧠 Command Center (Admin)")
-    st.info("Pannello in costruzione – pronto per la FASE 4 🚀")
+    st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
+    st.divider()
+
+    # --- FORM CREAZIONE SESSIONE ---
+    with st.form("form_crea_sessione"):
+        st.subheader("📅 Crea una nuova sessione")
+        materia = st.text_input("Materia della sessione:")
+        data_sessione = st.date_input("Data della lezione:")
+        nome_standard = st.text_input("Nome standardizzato (es. Economia_10_10_2025):")
+        tema = st.selectbox("Tema nomi gruppi:", ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"])
+
+        submit = st.form_submit_button("🚀 Crea sessione")
+
+        if submit:
+            if materia and nome_standard:
+                try:
+                    # Crea session_id unico
+                    from uuid import uuid4
+                    session_id = str(uuid4())[:8]
+
+                    # Crea link pubblico
+                    public_link = f"{get_public_link()}?session_id={session_id}"
+
+                    # Salva su Supabase
+                    supabase.table("sessions").insert({
+                        "id": session_id,
+                        "materia": materia,
+                        "data": str(data_sessione),
+                        "nome": nome_standard,
+                        "tema": tema,
+                        "link_pubblico": public_link,
+                        "creato_da": st.session_state.auth_user["id"],
+                        "timestamp": datetime.now().isoformat()
+                    }).execute()
+
+                    st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
+
+                    # Genera e mostra QR code
+                    qr_buf = generate_qr_code(public_link)
+                    st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
+
+                    st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
+
+                except Exception as e:
+                    st.error(f"Errore nella creazione della sessione: {e}")
+            else:
+                st.warning("Compila tutti i campi obbligatori.")
+
+    st.divider()
+
+    # --- LISTA SESSIONI ATTIVE ---
+    st.subheader("📋 Sessioni attive")
+    try:
+        res = supabase.table("sessions").select("*").order("timestamp", desc=True).execute()
+        sessioni = res.data
+    except Exception as e:
+        st.error(f"Errore nel caricamento delle sessioni: {e}")
+        sessioni = []
+
+    if sessioni:
+        for s in sessioni:
+            with st.expander(f"📘 {s['nome']} – {s['materia']} ({s['data']})"):
+                st.markdown(f"**Tema gruppi:** {s.get('tema', '-')}")
+                st.markdown(f"**Creato da:** {s.get('creato_da', '-')}")
+                st.markdown(f"**Link pubblico:** `{s.get('link_pubblico', '-')}`")
+
+                qr_buf = generate_qr_code(s["link_pubblico"])
+                st.image(qr_buf, caption="QR Code sessione", width=180)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"📋 Copia link ({s['id']})"):
+                        st.code(s["link_pubblico"])
+                with col2:
+                    if st.button(f"🗑️ Elimina sessione ({s['id']})"):
+                        try:
+                            supabase.table("sessions").delete().eq("id", s["id"]).execute()
+                            st.success("Sessione eliminata con successo ✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Errore durante l'eliminazione: {e}")
+    else:
+        st.info("Nessuna sessione creata finora.")
+
 
 # =====================================================
 # 🔧 FUNZIONI TEST GRUPPI
