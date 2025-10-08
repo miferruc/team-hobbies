@@ -270,6 +270,7 @@ elif pagina == "dashboard":
     with col2:
         if st.button("🧹 Elimina gruppi di test"):
             pulisci_gruppi_finti(user_id)
+
     
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
@@ -284,8 +285,23 @@ elif pagina == "admin_panel":
         st.subheader("📅 Crea una nuova sessione")
         materia = st.text_input("Materia della sessione:")
         data_sessione = st.date_input("Data della lezione:")
-        nome_standard = st.text_input("Nome standardizzato (es. Economia_10_10_2025):")
-        tema = st.selectbox("Tema nomi gruppi:", ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"])
+
+        # 🔧 Generazione automatica nome standardizzato
+        if materia and data_sessione:
+            nome_auto = f"{materia}_{data_sessione.strftime('%d_%m_%Y')}"
+        else:
+            nome_auto = ""
+
+        nome_standard = st.text_input(
+            "Nome standardizzato (generato automaticamente):",
+            value=nome_auto,
+            key="nome_standard",
+        )
+
+        tema = st.selectbox(
+            "Tema nomi gruppi:",
+            ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"]
+        )
 
         submit = st.form_submit_button("🚀 Crea sessione")
 
@@ -359,6 +375,7 @@ elif pagina == "admin_panel":
                             st.error(f"Errore durante l'eliminazione: {e}")
     else:
         st.info("Nessuna sessione creata finora.")
+
 
 
 # =====================================================
