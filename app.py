@@ -168,11 +168,19 @@ def generate_qr_code(link: str, session_name: str = None):
 
         draw = ImageDraw.Draw(new_img)
         text = session_name[:40]  # limita testo lungo
+
         try:
             font = ImageFont.truetype("arial.ttf", 20)
         except:
             font = ImageFont.load_default()
-        text_w, text_h = draw.textsize(text, font=font)
+
+        # ✅ Calcolo dimensioni testo compatibile con tutte le versioni di Pillow
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except AttributeError:
+            text_w, text_h = draw.textsize(text, font=font)
+
         draw.text(((width - text_w) / 2, 20), text, fill="black", font=font)
         qr_img = new_img
 
@@ -180,6 +188,7 @@ def generate_qr_code(link: str, session_name: str = None):
     qr_img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
 
 
 # ───────────── LOGIN/REGISTRAZIONE ─────────────
