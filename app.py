@@ -15,19 +15,25 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 st.set_page_config(page_title="Syntia MVP", page_icon="🎓", layout="centered")
 
-# ───────────── AUTH PERSISTENTE ─────────────
-# Se esiste una sessione salvata → la ricarica in modo sicuro
+# ───────────── AUTH PERSISTENTE (FIX) ─────────────
 if "supabase_session" in st.session_state and st.session_state["supabase_session"]:
     try:
         supabase.auth.set_session(st.session_state["supabase_session"])
-    except Exception as e:
-        st.warning("⚠️ Sessione non valida o scaduta. Effettua di nuovo il login.")
+    except Exception:
         st.session_state.pop("supabase_session", None)
         st.session_state.pop("auth_user", None)
-else:
-    st.info("🔐 Effettua l’accesso per continuare.")
-    st.stop()
+# 👉 niente st.stop() qui: il login deve poter renderizzare la sidebar
 
+# ───────────── CAPTURE PARAMETRO QR GLOBALE ─────────────
+# Se apro il link con ?session_id=... salvo il pending per usarlo post-login
+try:
+    qp = st.query_params
+    if qp and qp.get("session_id"):
+        sid = qp.get("session_id", [None])[0] if isinstance(qp.get("session_id"), list) else qp.get("session_id")
+        if sid:
+            st.session_state["pending_session_id"] = sid
+except Exception:
+    pass
 
 # ───────────── SESSION INIT ─────────────
 if "auth_user" not in st.session_state:
@@ -224,19 +230,34 @@ with st.sidebar:
                     st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
                     st.session_state["supabase_session"] = res.session  # ✅ salva la sessione persistente
 
-                    # 🔁 Se esiste una pending session dal QR → unisci l'utente automaticamente
+                    # ───────────── REDIRECT AUTOMATICO POST-LOGIN ─────────────
                     pending_session = st.session_state.get("pending_session_id")
+
                     if pending_session:
                         try:
-                            supabase.table("participants").insert({
-                                "user_id": res.user.id,
-                                "session_id": pending_session
-                            }).execute()
-                            st.success("✅ Ti sei unito automaticamente alla sessione!")
+                            # ✅ Se non è già iscritto, aggiungilo alla sessione
+                            chk = supabase.table("participants").select("*") \
+                                .eq("session_id", pending_session).eq("user_id", res.user.id).execute()
+                            if not chk.data:
+                                supabase.table("participants").insert({
+                                    "user_id": res.user.id,
+                                    "session_id": pending_session
+                                }).execute()
+
+                            # 🎯 Imposta la pagina principale su Dashboard e mantieni l’ID sessione
+                            st.session_state["menu_principale"] = "🎓 Dashboard Studente"
+                            st.experimental_set_query_params(session_id=pending_session)
+
+                            # ✅ Pulisce e ricarica
                             del st.session_state["pending_session_id"]
+                            st.success("✅ Ti sei unito alla sessione. Ti porto alla Dashboard…")
+                            st.rerun()
+
                         except Exception as e:
                             st.error(f"Errore durante l’unione automatica alla sessione: {e}")
+                            # Anche se fallisce, continuo col login normale
 
+                    # 🔁 Nessun QR pendente → login normale
                     st.success(f"Benvenuto {res.user.email} 👋")
                     st.rerun()
 
