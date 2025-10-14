@@ -300,48 +300,49 @@ if pagina == "profilo":
             st.rerun()
 
 elif pagina == "dashboard":
-   # =====================================================
-# 🔗 FASE 5A – JOIN VIA QR (versione aggiornata)
-# =====================================================
-query_params = st.query_params
-session_id = query_params.get("session_id", [None])[0] if query_params else None
+    # =====================================================
+    # 🔗 FASE 5A – JOIN VIA QR (versione aggiornata)
+    # =====================================================
+    query_params = st.query_params
+    session_id = query_params.get("session_id", [None])[0] if query_params else None
 
-# --- 🔐 FIX LOGIN VIA QR (persistente) ---
-# Se l'utente non è loggato ma ha scansionato un QR → salva e interrompi
-if session_id and not st.session_state.get("auth_user"):
-    st.session_state["pending_session_id"] = session_id
-    st.warning("⚠️ Effettua prima il login per unirti alla sessione.")
-    st.stop()
+    # --- 🔐 FIX LOGIN VIA QR (persistente) ---
+    # Se l'utente non è loggato ma ha scansionato un QR → salva e interrompi
+    if session_id and not st.session_state.get("auth_user"):
+        st.session_state["pending_session_id"] = session_id
+        st.warning("⚠️ Effettua prima il login per unirti alla sessione.")
+        st.stop()
 
-# Dopo il login → se esiste una sessione pending → unisciti automaticamente
-if st.session_state.get("auth_user") and st.session_state.get("pending_session_id"):
-    try:
-        user_id = st.session_state.auth_user["id"]
-        pending_session = st.session_state["pending_session_id"]
+    # Dopo il login → se esiste una sessione pending → unisciti automaticamente
+    if st.session_state.get("auth_user") and st.session_state.get("pending_session_id"):
+        try:
+            user_id = st.session_state.auth_user["id"]
+            pending_session = st.session_state["pending_session_id"]
 
-        # Verifica se già iscritto
-        res_check = supabase.table("participants").select("*") \
-            .eq("session_id", pending_session).eq("user_id", user_id).execute()
+            # Verifica se già iscritto
+            res_check = supabase.table("participants").select("*") \
+                .eq("session_id", pending_session).eq("user_id", user_id).execute()
 
-        if not res_check.data:
-            supabase.table("participants").insert({
-                "user_id": user_id,
-                "session_id": pending_session
-            }).execute()
-            st.success("✅ Ti sei unito automaticamente alla sessione!")
-        else:
-            st.info("Sei già iscritto a questa sessione ✅")
+            if not res_check.data:
+                supabase.table("participants").insert({
+                    "user_id": user_id,
+                    "session_id": pending_session
+                }).execute()
+                st.success("✅ Ti sei unito automaticamente alla sessione!")
+            else:
+                st.info("Sei già iscritto a questa sessione ✅")
 
-        # Rimuovi il pending ID e resetta la query string
-        del st.session_state["pending_session_id"]
-        st.experimental_set_query_params()
-        st.rerun()
+            # Rimuovi il pending ID e resetta la query string
+            del st.session_state["pending_session_id"]
+            st.experimental_set_query_params()
+            st.rerun()
 
-    except Exception as e:
-        st.error(f"Errore durante l’unione automatica alla sessione: {e}")
+        except Exception as e:
+            st.error(f"Errore durante l’unione automatica alla sessione: {e}")
 
-# --- Titolo Dashboard ---
-st.title("🎓 Dashboard Studente")
+    # --- Titolo Dashboard ---
+    st.title("🎓 Dashboard Studente")
+
 
 
     # --- 🔄 JOIN SESSIONE TRAMITE QR ---
