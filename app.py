@@ -16,13 +16,19 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 st.set_page_config(page_title="Syntia MVP", page_icon="🎓", layout="centered")
 
 # ───────────── AUTH PERSISTENTE (FIX) ─────────────
-if "supabase_session" in st.session_state and st.session_state["supabase_session"]:
+# Se ho i token, ripristino la sessione in modo corretto (2 argomenti)
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
-        supabase.auth.set_session(st.session_state["supabase_session"])
+        supabase.auth.set_session(
+            st.session_state["sb_access_token"],
+            st.session_state["sb_refresh_token"]
+        )
     except Exception:
-        st.session_state.pop("supabase_session", None)
-        st.session_state.pop("auth_user", None)
-# 👉 niente st.stop() qui: il login deve poter renderizzare la sidebar
+        # Se i token sono scaduti o invalidi, pulisco SOLO i token.
+        st.session_state.pop("sb_access_token", None)
+        st.session_state.pop("sb_refresh_token", None)
+        # Non tocco auth_user qui: evito di sloggarlo se sto entrando ora.
+
 
 # ───────────── CAPTURE PARAMETRO QR GLOBALE ─────────────
 # Se apro il link con ?session_id=... salvo il pending per usarlo post-login
@@ -228,7 +234,11 @@ with st.sidebar:
                     # 🔐 Login Supabase
                     res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
                     st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-                    st.session_state["supabase_session"] = res.session  # ✅ salva la sessione persistente
+
+                    # ✅ salva token per la persistenza corretta
+                    st.session_state["sb_access_token"]  = res.session.access_token
+                    st.session_state["sb_refresh_token"] = res.session.refresh_token
+                    # (opzionale) st.session_state.pop("supabase_session", None)
 
                     # ───────────── REDIRECT AUTOMATICO POST-LOGIN ─────────────
                     pending_session = st.session_state.get("pending_session_id")
@@ -288,12 +298,26 @@ with st.sidebar:
     else:
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
         if st.button("Esci"):
-            supabase.auth.sign_out()
-            st.session_state.auth_user = None
-            st.session_state["supabase_session"] = None  # 🧹 rimuove sessione salvata
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+
+            # 🔧 Pulizia completa dello stato utente
+            for k in [
+                "auth_user",
+                "sb_access_token",
+                "sb_refresh_token",
+                "pending_session_id",
+                "supabase_session",
+            ]:
+                st.session_state.pop(k, None)
+
+            st.success("🚪 Logout effettuato correttamente.")
             st.rerun()
 
     st.sidebar.divider()
+
 
 
 
