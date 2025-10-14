@@ -298,9 +298,12 @@ with st.sidebar:
 
 
 # ───────────── BLOCCO ACCESSO + CONTROLLO PROFILO ─────────────
-require_login()
-profile_data = load_profile()
-user_role = get_user_role(st.session_state.auth_user["id"])
+if st.session_state.auth_user is not None:
+    profile_data = load_profile()
+    user_role = get_user_role(st.session_state.auth_user["id"])
+else:
+    st.stop()
+
 
 # =====================================================
 # 🌐 MENU DI NAVIGAZIONE
