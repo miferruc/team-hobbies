@@ -15,6 +15,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 st.set_page_config(page_title="Syntia MVP", page_icon="🎓", layout="centered")
 
+# ───────────── AUTH PERSISTENTE ─────────────
+# Se esiste una sessione salvata → la ricarica
+if "supabase_session" in st.session_state and st.session_state["supabase_session"]:
+    supabase.auth.set_session(st.session_state["supabase_session"])
+
 # ───────────── SESSION INIT ─────────────
 if "auth_user" not in st.session_state:
     st.session_state.auth_user = None
@@ -205,8 +210,10 @@ with st.sidebar:
 
             if st.button("Accedi"):
                 try:
+                    # 🔐 Login Supabase
                     res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
                     st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                    st.session_state["supabase_session"] = res.session  # ✅ salva la sessione persistente
 
                     # 🔁 Se esiste una pending session dal QR → unisci l'utente automaticamente
                     pending_session = st.session_state.get("pending_session_id")
@@ -227,7 +234,7 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Login fallito: {e}")
 
-          # --- REGISTRAZIONE TAB ---
+        # --- REGISTRAZIONE TAB ---
         with tab_signup:
             email_s = st.text_input("Email", key="signup_email")
             pwd_s = st.text_input("Password", type="password", key="signup_pwd")
@@ -253,9 +260,11 @@ with st.sidebar:
         if st.button("Esci"):
             supabase.auth.sign_out()
             st.session_state.auth_user = None
+            st.session_state["supabase_session"] = None  # 🧹 rimuove sessione salvata
             st.rerun()
 
     st.sidebar.divider()
+
 
 
 # ───────────── BLOCCO ACCESSO + CONTROLLO PROFILO ─────────────
@@ -484,41 +493,48 @@ elif pagina == "admin_panel":
         ["Anime", "Imprese", "Sport", "Università", "Città", "Animali"]
     )
 
-    # --- PULSANTE CREAZIONE SESSIONE ---
-if st.button("🚀 Crea sessione"):
-    if materia and nome_standard:
-        try:
-            from uuid import uuid4
-            session_id = str(uuid4())[:8]
+        # --- PULSANTE CREAZIONE SESSIONE ---
+    if st.button("🚀 Crea sessione"):
+        if materia and nome_standard:
+            try:
+                from uuid import uuid4
+                session_id = str(uuid4())[:8]
 
-            # Crea link pubblico
-            public_link = f"{get_public_link()}?session_id={session_id}"
+                # Crea link pubblico
+                public_link = f"{get_public_link()}?session_id={session_id}"
 
-            # Salva su Supabase
-            supabase.table("sessioni").insert({  # 🔧 corretto
-                "id": session_id,
-                "materia": materia,
-                "data": str(data_sessione),
-                "nome": nome_standard,
-                "tema": tema,
-                "link_pubblico": public_link,
-                "creato_da": st.session_state.auth_user["id"],
-                "timestamp": datetime.now().isoformat()
-            }).execute()
+                # Salva su Supabase la nuova sessione
+                supabase.table("sessioni").insert({
+                    "id": session_id,
+                    "materia": materia,
+                    "data": str(data_sessione),
+                    "nome": nome_standard,
+                    "tema": tema,
+                    "link_pubblico": public_link,
+                    "creato_da": st.session_state.auth_user["id"],
+                    "timestamp": datetime.now().isoformat()
+                }).execute()
 
-            st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
+                # ✅ Aggiunge automaticamente l'admin come partecipante
+                supabase.table("participants").insert({
+                    "user_id": st.session_state.auth_user["id"],
+                    "session_id": session_id
+                }).execute()
 
-            # Genera e mostra QR code
-            qr_buf = generate_qr_code(public_link, nome_standard)
-            st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
-            st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
+                st.success(f"✅ Sessione '{nome_standard}' creata con successo!")
 
-        except Exception as e:
-            st.error(f"Errore nella creazione della sessione: {e}")
-    else:
-        st.warning("Compila tutti i campi obbligatori.")
+                # Genera e mostra QR code
+                qr_buf = generate_qr_code(public_link, nome_standard)
+                st.image(qr_buf, caption=f"Scansiona per accedere – {materia}")
+                st.markdown(f"🔗 **Link pubblico:** `{public_link}`")
 
-st.divider()
+            except Exception as e:
+                st.error(f"Errore nella creazione della sessione: {e}")
+        else:
+            st.warning("Compila tutti i campi obbligatori.")
+
+    st.divider()
+
 
 # --- LISTA SESSIONI ATTIVE ---
 st.subheader("📋 Sessioni attive")
