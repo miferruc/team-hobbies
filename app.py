@@ -149,7 +149,7 @@ def show_profilo_completo(profile):
 # ───────────── FUNZIONI UTILI ─────────────
 def get_public_link() -> str:
     # 🔧 Inserisci l'URL reale della tua app (copialo dalla barra del browser Streamlit)
-    return "https://miferruc-team-hobbies-main.streamlit.app"
+    return "https://team-hobbies-9ghc3ehkc4mbkxwpdhkqhn.streamlit.app"
 
 
 def generate_qr_code(link: str, session_name: str = None):
