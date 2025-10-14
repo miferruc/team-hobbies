@@ -256,7 +256,9 @@ with st.sidebar:
 
                             # 🎯 Imposta la pagina principale su Dashboard e mantieni l’ID sessione
                             st.session_state["menu_principale"] = "🎓 Dashboard Studente"
-                            st.experimental_set_query_params(session_id=pending_session)
+                            st.query_params.update({"session_id": pending_session})
+
+
 
                             # ✅ Pulisce e ricarica
                             del st.session_state["pending_session_id"]
@@ -369,8 +371,12 @@ elif pagina == "dashboard":
     # =====================================================
     # 🔗 FASE 5A – JOIN VIA QR (versione aggiornata)
     # =====================================================
-    query_params = st.query_params
-    session_id = query_params.get("session_id", [None])[0] if query_params else None
+    qp = st.query_params
+    session_id = None
+    if "session_id" in qp:
+        val = qp["session_id"]
+        session_id = val[0] if isinstance(val, list) else val
+
 
     # --- 🔐 FIX LOGIN VIA QR (persistente) ---
     # Se l'utente non è loggato ma ha scansionato un QR → salva e interrompi
@@ -400,7 +406,7 @@ elif pagina == "dashboard":
 
             # Rimuovi il pending ID e resetta la query string
             del st.session_state["pending_session_id"]
-            st.experimental_set_query_params()
+            st.query_params.update({"session_id": pending_session})
             st.rerun()
 
         except Exception as e:
