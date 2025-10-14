@@ -16,9 +16,18 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 st.set_page_config(page_title="Syntia MVP", page_icon="🎓", layout="centered")
 
 # ───────────── AUTH PERSISTENTE ─────────────
-# Se esiste una sessione salvata → la ricarica
+# Se esiste una sessione salvata → la ricarica in modo sicuro
 if "supabase_session" in st.session_state and st.session_state["supabase_session"]:
-    supabase.auth.set_session(st.session_state["supabase_session"])
+    try:
+        supabase.auth.set_session(st.session_state["supabase_session"])
+    except Exception as e:
+        st.warning("⚠️ Sessione non valida o scaduta. Effettua di nuovo il login.")
+        st.session_state.pop("supabase_session", None)
+        st.session_state.pop("auth_user", None)
+else:
+    st.info("🔐 Effettua l’accesso per continuare.")
+    st.stop()
+
 
 # ───────────── SESSION INIT ─────────────
 if "auth_user" not in st.session_state:
