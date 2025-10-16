@@ -619,6 +619,10 @@ elif pagina == "admin_panel":
                             st.error(f"Errore durante l'eliminazione: {e}")
     else:
         st.info("Nessuna sessione creata finora.")
+        
+# --- 👻 CREA UTENTI GHOST PER TEST ---
+if st.button(f"👻 Crea 10 utenti ghost per {s['nome']}"):
+    crea_utenti_ghost(s["id"], n=10)
 
 
 
@@ -726,3 +730,100 @@ def pulisci_gruppi_finti(user_id):
         st.success("🧹 Gruppi di test eliminati con successo!")
     except Exception as e:
         st.error(f"Errore durante la pulizia dei gruppi: {e}")
+
+# =====================================================
+# 🤝 FUNZIONE DI CREAZIONE GRUPPI REALI DA SESSIONE
+# =====================================================
+def crea_gruppi_da_sessione(session_id: str, max_size: int = 4):
+    """Crea gruppi reali a partire dai partecipanti di una sessione."""
+    try:
+        # 1️⃣ Recupera la sessione
+        res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
+        if not res_sess.data:
+            st.error("Sessione non trovata.")
+            return
+        sessione = res_sess.data[0]
+        tema = sessione.get("tema", "Generico")
+
+        # 2️⃣ Recupera tutti i partecipanti
+        res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+        partecipanti = [p["user_id"] for p in res_part.data]
+
+        if len(partecipanti) < 3:
+            st.warning("Servono almeno 3 partecipanti per creare gruppi.")
+            return
+
+        # 3️⃣ Mischia e suddividi in sottogruppi
+        random.shuffle(partecipanti)
+        gruppi_creati = []
+        for i in range(0, len(partecipanti), max_size):
+            membri = partecipanti[i:i + max_size]
+            nome_gruppo = f"{tema}_{i//max_size + 1}"
+            gruppo = {
+                "nome_gruppo": nome_gruppo,
+                "tema": tema,
+                "session_id": session_id,
+                "membri": membri,
+                "data_creazione": datetime.now().isoformat()
+            }
+            supabase.table("gruppi").insert(gruppo).execute()
+            gruppi_creati.append(nome_gruppo)
+
+        st.success(f"✅ Creati {len(gruppi_creati)} gruppi per la sessione '{sessione['nome']}'")
+        st.info(f"Gruppi: {', '.join(gruppi_creati)}")
+
+    except Exception as e:
+        st.error(f"Errore durante la creazione dei gruppi: {e}")
+# =====================================================
+# 👻 FUNZIONE DI CREAZIONE UTENTI GHOST PER TEST
+# =====================================================
+def crea_utenti_ghost(session_id: str, n: int = 10):
+    """Crea utenti fittizi (ghost) e li iscrive alla sessione indicata."""
+    try:
+        # 1️⃣ Recupera la sessione
+        res_sess = supabase.table("sessioni").select("materia").eq("id", session_id).execute()
+        if not res_sess.data:
+            st.error("Sessione non trovata.")
+            return
+        materia = res_sess.data[0].get("materia", "Test")
+
+        ghost_ids = []
+        for i in range(n):
+            uid = f"ghost_{session_id}_{i+1}"
+            nome = f"Ghost User {i+1}"
+            email = f"ghost{i+1}@syntia.fake"
+
+            # 🔧 Crea profilo ghost (se non esiste)
+            try:
+                supabase.table("profiles").insert({
+                    "id": uid,
+                    "email": email,
+                    "nome": nome,
+                    "corso": "Economia",
+                    "materie_fatte": [],
+                    "materie_dafare": [materia],
+                    "hobby": ["Test"],
+                    "approccio": "In gruppo e con confronto",
+                    "obiettivi": ["Simulazione gruppi"],
+                    "role": "student"
+                }).execute()
+            except Exception:
+                # se già esiste, ignora
+                pass
+
+            # 🔧 Iscrive l’utente ghost alla sessione
+            try:
+                supabase.table("participants").insert({
+                    "user_id": uid,
+                    "session_id": session_id
+                }).execute()
+                ghost_ids.append(uid)
+            except Exception:
+                # se già iscritto, ignora
+                pass
+
+        st.success(f"✅ Creati e iscritti {len(ghost_ids)} utenti ghost alla sessione '{materia}'")
+        st.info(f"ID generati: {', '.join(ghost_ids)}")
+
+    except Exception as e:
+        st.error(f"Errore durante la creazione utenti ghost: {e}")
