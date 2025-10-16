@@ -619,9 +619,10 @@ elif pagina == "admin_panel":
                             st.error(f"Errore durante l'eliminazione: {e}")
     else:
         st.info("Nessuna sessione creata finora.")
-        
+
 # --- 👻 CREA UTENTI GHOST PER TEST ---
-if st.button(f"👻 Crea 10 utenti ghost per {s['nome']}"):
+label_ghost = f"👻 Crea 10 utenti ghost per {s.get('nome', 'questa sessione')}"
+if st.button(label_ghost, key=f"ghost_{s['id']}"):
     crea_utenti_ghost(s["id"], n=10)
 
 
