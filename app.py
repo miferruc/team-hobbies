@@ -576,7 +576,7 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
 # =====================================================
-elif pagina == "admin_panel":
+    elif pagina == "admin_panel":
     st.title("🧠 Command Center (Admin)")
     st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
     st.divider()
