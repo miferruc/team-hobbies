@@ -517,6 +517,61 @@ elif pagina == "dashboard":
     except Exception as e:
         st.error(f"Errore durante il caricamento del gruppo: {e}")
 
+
+# =====================================================
+# 👻 FUNZIONE DI CREAZIONE UTENTI GHOST PER TEST
+# =====================================================
+def crea_utenti_ghost(session_id: str, n: int = 10):
+    """Crea utenti fittizi (ghost) e li iscrive alla sessione indicata."""
+    try:
+        # 1️⃣ Recupera la sessione
+        res_sess = supabase.table("sessioni").select("materia").eq("id", session_id).execute()
+        if not res_sess.data:
+            st.error("Sessione non trovata.")
+            return
+        materia = res_sess.data[0].get("materia", "Test")
+
+        ghost_ids = []
+        for i in range(n):
+            uid = f"ghost_{session_id}_{i+1}"
+            nome = f"Ghost User {i+1}"
+            email = f"ghost{i+1}@syntia.fake"
+
+            # 🔧 Crea profilo ghost (se non esiste)
+            try:
+                supabase.table("profiles").insert({
+                    "id": uid,
+                    "email": email,
+                    "nome": nome,
+                    "corso": "Economia",
+                    "materie_fatte": [],
+                    "materie_dafare": [materia],
+                    "hobby": ["Test"],
+                    "approccio": "In gruppo e con confronto",
+                    "obiettivi": ["Simulazione gruppi"],
+                    "role": "student"
+                }).execute()
+            except Exception:
+                # se già esiste, ignora
+                pass
+
+            # 🔧 Iscrive l’utente ghost alla sessione
+            try:
+                supabase.table("participants").insert({
+                    "user_id": uid,
+                    "session_id": session_id
+                }).execute()
+                ghost_ids.append(uid)
+            except Exception:
+                # se già iscritto, ignora
+                pass
+
+        st.success(f"✅ Creati e iscritti {len(ghost_ids)} utenti ghost alla sessione '{materia}'")
+        st.info(f"ID generati: {', '.join(ghost_ids)}")
+
+    except Exception as e:
+        st.error(f"Errore durante la creazione utenti ghost: {e}")
+
     
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
@@ -775,56 +830,3 @@ def crea_gruppi_da_sessione(session_id: str, max_size: int = 4):
 
     except Exception as e:
         st.error(f"Errore durante la creazione dei gruppi: {e}")
-# =====================================================
-# 👻 FUNZIONE DI CREAZIONE UTENTI GHOST PER TEST
-# =====================================================
-def crea_utenti_ghost(session_id: str, n: int = 10):
-    """Crea utenti fittizi (ghost) e li iscrive alla sessione indicata."""
-    try:
-        # 1️⃣ Recupera la sessione
-        res_sess = supabase.table("sessioni").select("materia").eq("id", session_id).execute()
-        if not res_sess.data:
-            st.error("Sessione non trovata.")
-            return
-        materia = res_sess.data[0].get("materia", "Test")
-
-        ghost_ids = []
-        for i in range(n):
-            uid = f"ghost_{session_id}_{i+1}"
-            nome = f"Ghost User {i+1}"
-            email = f"ghost{i+1}@syntia.fake"
-
-            # 🔧 Crea profilo ghost (se non esiste)
-            try:
-                supabase.table("profiles").insert({
-                    "id": uid,
-                    "email": email,
-                    "nome": nome,
-                    "corso": "Economia",
-                    "materie_fatte": [],
-                    "materie_dafare": [materia],
-                    "hobby": ["Test"],
-                    "approccio": "In gruppo e con confronto",
-                    "obiettivi": ["Simulazione gruppi"],
-                    "role": "student"
-                }).execute()
-            except Exception:
-                # se già esiste, ignora
-                pass
-
-            # 🔧 Iscrive l’utente ghost alla sessione
-            try:
-                supabase.table("participants").insert({
-                    "user_id": uid,
-                    "session_id": session_id
-                }).execute()
-                ghost_ids.append(uid)
-            except Exception:
-                # se già iscritto, ignora
-                pass
-
-        st.success(f"✅ Creati e iscritti {len(ghost_ids)} utenti ghost alla sessione '{materia}'")
-        st.info(f"ID generati: {', '.join(ghost_ids)}")
-
-    except Exception as e:
-        st.error(f"Errore durante la creazione utenti ghost: {e}")
