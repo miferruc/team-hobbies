@@ -526,100 +526,100 @@ elif pagina == "admin_panel":
     st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
     st.divider()
 
-    
-# --- LISTA SESSIONI ATTIVE ---
-st.subheader("📋 Sessioni attive")
-try:
-    res = supabase.table("sessioni").select("*").order("timestamp", desc=True).execute()  # 🔧 corretto
-    sessioni = res.data
-except Exception as e:
-    st.error(f"Errore nel caricamento delle sessioni: {e}")
-    sessioni = []
+    # --- LISTA SESSIONI ATTIVE ---
+    st.subheader("📋 Sessioni attive")
+    try:
+        res = supabase.table("sessioni").select("*").order("timestamp", desc=True).execute()  # 🔧 corretto
+        sessioni = res.data
+    except Exception as e:
+        st.error(f"Errore nel caricamento delle sessioni: {e}")
+        sessioni = []
 
-if sessioni:
-    for s in sessioni:
-        with st.expander(f"📘 {s['nome']} – {s['materia']} ({s['data']})"):
-            st.markdown(f"**Tema gruppi:** {s.get('tema', '-')}")  
-            st.markdown(f"**Creato da:** {s.get('creato_da', '-')}")  
-            st.markdown(f"**Link pubblico:** `{s.get('link_pubblico', '-')}`")  
+    if sessioni:
+        for s in sessioni:
+            with st.expander(f"📘 {s['nome']} – {s['materia']} ({s['data']})"):
+                st.markdown(f"**Tema gruppi:** {s.get('tema', '-')}")  
+                st.markdown(f"**Creato da:** {s.get('creato_da', '-')}")  
+                st.markdown(f"**Link pubblico:** `{s.get('link_pubblico', '-')}`")  
 
-            qr_buf = generate_qr_code(s["link_pubblico"])
-            st.image(qr_buf, caption="QR Code sessione", width=180)
+                qr_buf = generate_qr_code(s["link_pubblico"])
+                st.image(qr_buf, caption="QR Code sessione", width=180)
 
-            # --- 👥 LISTA PARTECIPANTI SESSIONE ---
-            st.markdown("### 👥 Partecipanti iscritti")
+                # --- 👥 LISTA PARTECIPANTI SESSIONE ---
+                st.markdown("### 👥 Partecipanti iscritti")
 
-            # Pulsante per aggiornare la lista
-            aggiorna = st.button(f"🔄 Aggiorna lista partecipanti ({s['id']})")
+                # Pulsante per aggiornare la lista
+                aggiorna = st.button(f"🔄 Aggiorna lista partecipanti ({s['id']})")
 
-            try:
-                if aggiorna or True:
-                    res_part = supabase.table("participants") \
-                        .select("user_id") \
-                        .eq("session_id", s["id"]).execute()
+                try:
+                    if aggiorna or True:
+                        res_part = supabase.table("participants") \
+                            .select("user_id") \
+                            .eq("session_id", s["id"]).execute()
 
-                    if res_part.data:
-                        partecipanti_ids = [p["user_id"] for p in res_part.data]
+                        if res_part.data:
+                            partecipanti_ids = [p["user_id"] for p in res_part.data]
 
-                        # Recupera i profili degli utenti
-                        res_prof = supabase.table("profiles") \
-                            .select("email, nome") \
-                            .in_("id", partecipanti_ids).execute()
+                            # Recupera i profili degli utenti
+                            res_prof = supabase.table("profiles") \
+                                .select("email, nome") \
+                                .in_("id", partecipanti_ids).execute()
 
-                        partecipanti = [
-                            f"{p.get('nome', 'Sconosciuto')} ({p.get('email', 'no email')})"
-                            for p in res_prof.data
-                        ]
+                            partecipanti = [
+                                f"{p.get('nome', 'Sconosciuto')} ({p.get('email', 'no email')})"
+                                for p in res_prof.data
+                            ]
 
-                        # Mostra la lista
-                        st.selectbox(
-                            "Partecipanti registrati:",
-                            options=partecipanti,
-                            index=0 if partecipanti else None,
-                            key=f"sel_part_{s['id']}"
-                        )
+                            # Mostra la lista
+                            st.selectbox(
+                                "Partecipanti registrati:",
+                                options=partecipanti,
+                                index=0 if partecipanti else None,
+                                key=f"sel_part_{s['id']}"
+                            )
 
-                        totale = len(partecipanti)
-                        st.info(f"Totale partecipanti: **{totale}**")
+                            totale = len(partecipanti)
+                            st.info(f"Totale partecipanti: **{totale}**")
 
-                        # Blocco creazione gruppi se meno di 3
-                        if totale < 3:
-                            st.warning("⚠️ Servono almeno 3 studenti per creare i gruppi.")
-                            crea_attivo = False
+                            # Blocco creazione gruppi se meno di 3
+                            if totale < 3:
+                                st.warning("⚠️ Servono almeno 3 studenti per creare i gruppi.")
+                                crea_attivo = False
+                            else:
+                                crea_attivo = True
                         else:
-                            crea_attivo = True
-                    else:
-                        st.warning("Nessuno studente ha ancora scansionato il QR code.")
-                        crea_attivo = False
-            except Exception as e:
-                st.error(f"Errore nel caricamento partecipanti: {e}")
-                crea_attivo = False
-            # --- 👥 FINE LISTA PARTECIPANTI ---
+                            st.warning("Nessuno studente ha ancora scansionato il QR code.")
+                            crea_attivo = False
+                except Exception as e:
+                    st.error(f"Errore nel caricamento partecipanti: {e}")
+                    crea_attivo = False
+                # --- 👥 FINE LISTA PARTECIPANTI ---
 
-            st.markdown("---")
+                st.markdown("---")
 
-            # --- 🤝 CREA GRUPPI ---
-            if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}"):
-                crea_gruppi_da_sessione(s["id"])
-            elif not crea_attivo:
-                st.info("🔒 Il pulsante 'Crea gruppi' si attiverà automaticamente quando ci saranno almeno 3 partecipanti.")
+                # --- 🤝 CREA GRUPPI ---
+                if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}"):
+                    crea_gruppi_da_sessione(s["id"])
+                elif not crea_attivo:
+                    st.info("🔒 Il pulsante 'Crea gruppi' si attiverà automaticamente quando ci saranno almeno 3 partecipanti.")
 
-            st.markdown("---")
+                st.markdown("---")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(f"📋 Copia link ({s['id']})"):
-                    st.code(s["link_pubblico"])
-            with col2:
-                if st.button(f"🗑️ Elimina sessione ({s['id']})"):
-                    try:
-                        supabase.table("sessioni").delete().eq("id", s["id"]).execute()  # 🔧 corretto
-                        st.success("Sessione eliminata con successo ✅")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Errore durante l'eliminazione: {e}")
-else:
-    st.info("Nessuna sessione creata finora.")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"📋 Copia link ({s['id']})"):
+                        st.code(s["link_pubblico"])
+                with col2:
+                    if st.button(f"🗑️ Elimina sessione ({s['id']})"):
+                        try:
+                            supabase.table("sessioni").delete().eq("id", s["id"]).execute()  # 🔧 corretto
+                            st.success("Sessione eliminata con successo ✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Errore durante l'eliminazione: {e}")
+    else:
+        st.info("Nessuna sessione creata finora.")
+
 
 
     # --- CREAZIONE SESSIONE ---
