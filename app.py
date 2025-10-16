@@ -516,8 +516,6 @@ elif pagina == "dashboard":
                 st.warning("⏳ Non sei ancora stato assegnato a un gruppo. Attendi che l'admin completi il matching.")
     except Exception as e:
         st.error(f"Errore durante il caricamento del gruppo: {e}")
-
-
 # =====================================================
 # 👻 FUNZIONE DI CREAZIONE UTENTI GHOST PER TEST
 # =====================================================
@@ -572,11 +570,11 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
     except Exception as e:
         st.error(f"Errore durante la creazione utenti ghost: {e}")
 
-    
+
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
 # =====================================================
-    elif pagina == "admin_panel":
+elif pagina == "admin_panel":
     st.title("🧠 Command Center (Admin)")
     st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
     st.divider()
@@ -603,7 +601,6 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
                 # --- 👥 LISTA PARTECIPANTI SESSIONE ---
                 st.markdown("### 👥 Partecipanti iscritti")
 
-                # Pulsante per aggiornare la lista
                 aggiorna = st.button(f"🔄 Aggiorna lista partecipanti ({s['id']})")
 
                 try:
@@ -615,7 +612,6 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
                         if res_part.data:
                             partecipanti_ids = [p["user_id"] for p in res_part.data]
 
-                            # Recupera i profili degli utenti
                             res_prof = supabase.table("profiles") \
                                 .select("email, nome") \
                                 .in_("id", partecipanti_ids).execute()
@@ -625,7 +621,6 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
                                 for p in res_prof.data
                             ]
 
-                            # Mostra la lista
                             st.selectbox(
                                 "Partecipanti registrati:",
                                 options=partecipanti,
@@ -636,7 +631,6 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
                             totale = len(partecipanti)
                             st.info(f"Totale partecipanti: **{totale}**")
 
-                            # Blocco creazione gruppi se meno di 3
                             if totale < 3:
                                 st.warning("⚠️ Servono almeno 3 studenti per creare i gruppi.")
                                 crea_attivo = False
@@ -648,32 +642,36 @@ def crea_utenti_ghost(session_id: str, n: int = 10):
                 except Exception as e:
                     st.error(f"Errore nel caricamento partecipanti: {e}")
                     crea_attivo = False
-                # --- 👥 FINE LISTA PARTECIPANTI ---
 
                 st.markdown("---")
 
                 # --- 🤝 CREA GRUPPI ---
-                if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}"):
+                if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}", key=f"crea_{s['id']}"):
                     crea_gruppi_da_sessione(s["id"])
                 elif not crea_attivo:
                     st.info("🔒 Il pulsante 'Crea gruppi' si attiverà automaticamente quando ci saranno almeno 3 partecipanti.")
 
                 st.markdown("---")
 
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button(f"📋 Copia link ({s['id']})"):
+                    if st.button(f"📋 Copia link ({s['id']})", key=f"copy_{s['id']}"):
                         st.code(s["link_pubblico"])
                 with col2:
-                    if st.button(f"🗑️ Elimina sessione ({s['id']})"):
+                    if st.button(f"🗑️ Elimina sessione ({s['id']})", key=f"delete_{s['id']}"):
                         try:
-                            supabase.table("sessioni").delete().eq("id", s["id"]).execute()  # 🔧 corretto
+                            supabase.table("sessioni").delete().eq("id", s["id"]).execute()
                             st.success("Sessione eliminata con successo ✅")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Errore durante l'eliminazione: {e}")
+                with col3:
+                    label_ghost = f"👻 Crea 10 utenti ghost per {s.get('nome', 'questa sessione')}"
+                    if st.button(label_ghost, key=f"ghost_{s['id']}"):
+                        crea_utenti_ghost(s["id"], n=10)
     else:
         st.info("Nessuna sessione creata finora.")
+
 
 # --- 👻 CREA UTENTI GHOST PER TEST ---
 label_ghost = f"👻 Crea 10 utenti ghost per {s.get('nome', 'questa sessione')}"
