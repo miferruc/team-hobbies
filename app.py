@@ -772,3 +772,194 @@ with tab3:
         st.caption("Aggiornamento automatico ogni 10 s.")
     else:
         st.info("Nessun gruppo ancora creato.")
+    
+    # =====================================================
+    # 📊 DASHBOARD ANALITICA GRUPPI
+    # =====================================================
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    st.markdown("---")
+    st.subheader("📊 Analisi dei gruppi")
+
+    try:
+        res_gruppi = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
+        gruppi_data = res_gruppi.data or []
+
+        if gruppi_data:
+            for g in gruppi_data:
+                nome = g.get("nome_gruppo", "—")
+                membri = g.get("membri", [])
+
+                st.markdown(f"### 🔸 {nome}")
+
+                if not membri:
+                    st.info("Nessun membro in questo gruppo.")
+                    continue
+
+                # Recupera profili
+                res_prof = supabase.table("profiles").select("nome,hobby,approccio").in_("id", membri).execute()
+                profili = res_prof.data or []
+                if not profili:
+                    st.info("Profili non trovati.")
+                    continue
+
+                # Analisi approcci
+                df = pd.DataFrame(profili)
+                if "approccio" in df.columns and not df["approccio"].isna().all():
+                    counts = df["approccio"].value_counts()
+                    fig, ax = plt.subplots()
+                    counts.plot(kind="bar", ax=ax)
+                    ax.set_title(f"Approcci allo studio nel gruppo {nome}")
+                    ax.set_ylabel("Numero studenti")
+                    st.pyplot(fig)
+                else:
+                    st.info("Nessun dato sugli approcci.")
+
+                # Analisi hobby
+                all_hobby = []
+                for p in profili:
+                    raw = p.get("hobby", [])
+                    if isinstance(raw, str):
+                        try:
+                            import json
+                            raw = json.loads(raw)
+                        except Exception:
+                            raw = [raw]
+                    elif not isinstance(raw, list):
+                        raw = [str(raw)]
+                    all_hobby.extend(raw)
+
+                if all_hobby:
+                    freq = pd.Series(all_hobby).value_counts().head(5)
+                    st.write("🎨 **Hobby più condivisi:**")
+                    for h, n in freq.items():
+                        st.write(f"- {h}: {n} studenti")
+                else:
+                    st.info("Nessun hobby registrato.")
+                
+                # Calcolo affinità media del gruppo
+                def sim(a, b):
+                    inter = len(set(a) & set(b))
+                    tot = len(set(a) | set(b))
+                    return inter / tot if tot else 0
+
+                sim_list = []
+                for i in range(len(profili)):
+                    for j in range(i + 1, len(profili)):
+                        h1 = profili[i].get("hobby", [])
+                        h2 = profili[j].get("hobby", [])
+                        if isinstance(h1, str):
+                            try:
+                                h1 = json.loads(h1)
+                            except Exception:
+                                h1 = [h1]
+                        if isinstance(h2, str):
+                            try:
+                                h2 = json.loads(h2)
+                            except Exception:
+                                h2 = [h2]
+                        sim_list.append(sim(h1, h2))
+
+                affinità = round(sum(sim_list) / len(sim_list), 2) if sim_list else 0
+                st.progress(affinità)
+                st.caption(f"Affinità media del gruppo: **{affinità * 100:.0f}%**")
+                st.divider()
+
+        else:
+            st.info("Nessun gruppo disponibile per analisi.")
+    except Exception as e:
+        st.error(f"Errore durante l’analisi gruppi: {e}")
+
+
+# ---------------------------
+# DEBUG: creazione / rimozione account "ghost" per test
+# ---------------------------
+import uuid, random, json
+from datetime import datetime
+
+def make_fake_profile():
+    first = ["Luca","Marco","Giulia","Anna","Francesco","Sara","Paolo","Elisa","Matteo","Federica","Davide","Marta","Simone","Laura","Alessio","Chiara","Giorgio","Valentina","Riccardo","Martina"]
+    last = ["Rossi","Bianchi","Verdi","Russo","Ferrari","Esposito","Romano","Gallo","Conti","Marino"]
+    nome = f"{random.choice(first)} {random.choice(last)}"
+    corso = random.choice(["Economia","Ingegneria","Matematica","Scienze"])
+    materie = ["Economia","Statistica","Diritto","Microeconomia","Marketing","Finanza","Econometria","Gestione"]
+    hobby_opts = ["Sport","Lettura","Musica","Viaggi","Videogiochi","Arte","Volontariato"]
+    hobby = random.sample(hobby_opts, k=random.randint(0,3))
+    approccio = random.choice(["Collaborativo","Individuale","Analitico","Pratico"])
+    obiettivi = random.sample([
+        "Passare gli esami a prescindere dal voto",
+        "Raggiungere una media del 30",
+        "Migliorare la comprensione delle materie",
+        "Creare connessioni e fare gruppo",
+        "Prepararmi per la carriera futura"
+    ], k=random.randint(1,2))
+    return {
+        "id": uuid.uuid4().hex,
+        "email": f"ghost_{uuid.uuid4().hex[:8]}@example.com",
+        "nome": nome,
+        "corso": corso,
+        "materie_fatte": random.sample(materie, k=random.randint(0,3)),
+        "materie_dafare": random.sample(materie, k=random.randint(0,3)),
+        "hobby": hobby,
+        "approccio": approccio,
+        "obiettivi": obiettivi,
+        "role": "ghost",
+        "created_at": datetime.now().isoformat()
+    }
+
+def create_ghosts(n=20, session_id=None, add_as_participants=False):
+    created = []
+    try:
+        batch = [make_fake_profile() for _ in range(n)]
+        # insert in profiles
+        supabase.table("profiles").insert(batch).execute()
+        created = [p["id"] for p in batch]
+        # optionally add to participants
+        if session_id and add_as_participants:
+            part_batch = []
+            ts = datetime.now().isoformat()
+            for pid in created:
+                part_batch.append({"user_id": pid, "session_id": session_id, "joined_at": ts})
+            supabase.table("participants").insert(part_batch).execute()
+        return created
+    except Exception as e:
+        st.error(f"Errore creazione ghost: {e}")
+        return []
+
+def delete_ghosts():
+    try:
+        # recupera gli id dei ghost per pulizia participants
+        rows = supabase.table("profiles").select("id").eq("role","ghost").execute()
+        ids = [r["id"] for r in (rows.data or [])]
+        if ids:
+            supabase.table("participants").delete().in_("user_id", ids).execute()
+        supabase.table("profiles").delete().eq("role","ghost").execute()
+        return len(ids)
+    except Exception as e:
+        st.error(f"Errore rimozione ghost: {e}")
+        return 0
+
+# ---------- UI (incolla dove vuoi) ----------
+st.markdown("---")
+st.markdown("#### ⚙️ Debug: ghost accounts (solo test)")
+enable = st.checkbox("Enable debug ghost tools (solo in locale/testing)", key="enable_ghost_tools")
+if enable:
+    col_a, col_b = st.columns([2,1])
+    with col_a:
+        n_ghost = st.number_input("Quanti ghost creare", min_value=1, max_value=200, value=20, step=1, key="ghost_n")
+        sess_input = st.text_input("Sessione ID (se vuoi che i ghost entrino nella sessione)", value="", key="ghost_session")
+        add_parts = st.checkbox("Aggiungi i ghost come participants alla sessione specificata", value=True, key="ghost_add_part")
+    with col_b:
+        if st.button("Crea ghost"):
+            created = create_ghosts(n=int(n_ghost), session_id=(sess_input or None), add_as_participants=bool(add_parts and sess_input))
+            if created:
+                st.success(f"Creati {len(created)} ghost. Prime 5 ids: {', '.join(created[:5])}")
+                st.experimental_rerun()
+    st.markdown(" ")
+    if st.button("🗑️ Rimuovi tutti i ghost creati (role='ghost')"):
+        removed = delete_ghosts()
+        st.warning(f"Eliminati {removed} ghost e relativi participants.")
+        st.experimental_rerun()
+    st.markdown("***")
+    st.info("Uso: crea ghost per testare creazione gruppi, cancellali dopo i test. Non abilitare in produzione.")
