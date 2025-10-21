@@ -88,11 +88,7 @@ with tab3:
     st.info("Qui vedrai la lista di studenti che hanno fatto join e potrai creare gruppi.")
     st.write("⚙️ Da implementare nel Checkpoint 3.")
 
-# =====================================================
-# 🧭 MENU PRINCIPALE A TABS
-# =====================================================
 
-tab1, tab2, tab3 = st.tabs(["👤 Profilo", "🏫 Sessioni", "🤝 Gruppi"])
 
 # =====================================================
 # TAB 1 — PROFILO STUDENTE
