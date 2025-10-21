@@ -68,7 +68,7 @@ with st.sidebar:
 # 🧩 CONTENUTO PRINCIPALE
 # =====================================================
 # =====================================================
-# 🎯 CHECKPOINT 1 — PROFILO STUDENTE (versione corretta)
+# 🎯 CHECKPOINT 1 — PROFILO STUDENTE (versione fail-safe)
 # =====================================================
 
 import json
@@ -126,23 +126,29 @@ profile = load_profile(user_id)
 nome = st.text_input("Nome completo", value=profile.get("nome") if profile else "")
 corso = st.text_input("Corso di studi", value=profile.get("corso") if profile else "")
 
-# --- Sanitizzazione del valore hobby ---
+# --- Gestione sicura del valore hobby ---
 default_hobby = []
-if profile and profile.get("hobby"):
-    val = profile.get("hobby")
-    if isinstance(val, str):
+if profile:
+    raw = profile.get("hobby")
+    if isinstance(raw, list):
+        default_hobby = [str(x) for x in raw]
+    elif isinstance(raw, str) and raw.strip():
         try:
-            parsed = json.loads(val)
+            parsed = json.loads(raw)
             if isinstance(parsed, list):
-                default_hobby = parsed
+                default_hobby = [str(x) for x in parsed]
+            else:
+                default_hobby = [raw]
         except Exception:
-            default_hobby = [val]
-    elif isinstance(val, list):
-        default_hobby = val
+            default_hobby = [raw]
+# Se valori non validi → lista vuota
+
+options_hobby = ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Arte", "Volontariato"]
+default_hobby = [x for x in default_hobby if x in options_hobby]
 
 hobby = st.multiselect(
     "Hobby principali",
-    ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Arte", "Volontariato"],
+    options=options_hobby,
     default=default_hobby,
 )
 
