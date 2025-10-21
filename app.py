@@ -954,10 +954,70 @@ def delete_ghosts():
         st.error(f"Errore rimozione ghost: {e}")
         return 0
 
-# ---------- UI (incolla dove vuoi) ----------
+# =====================================================
+# ⚙️ DEBUG: CREAZIONE / RIMOZIONE GHOST USERS (solo test)
+# =====================================================
+import uuid
+
+def create_ghosts(n=10, session_id=None, add_as_participants=False):
+    """Crea utenti ghost di test e li inserisce in profiles (e opzionalmente in participants)."""
+    created_ids = []
+    try:
+        for i in range(n):
+            ghost_id = str(uuid.uuid4())  # ✅ UUID valido per colonna id
+            nome = f"Ghost User {i+1}"
+            email = f"ghost{i+1}@syntia.fake"
+            corso = "Test Corso"
+
+            # 🔹 Inserisci profilo ghost via funzione SQL
+            supabase.rpc("insert_ghost_profile", {
+                "p_id": ghost_id,
+                "p_email": email,
+                "p_nome": nome,
+                "p_corso": corso,
+                "p_materie_fatte": [],
+                "p_materie_dafare": [],
+                "p_hobby": [],
+                "p_approccio": "bilanciato",
+                "p_obiettivi": [],
+                "p_role": "ghost"
+            }).execute()
+
+            # 🔹 Aggiungi alla sessione se richiesto
+            if add_as_participants and session_id:
+                supabase.table("participants").insert({
+                    "user_id": ghost_id,
+                    "session_id": session_id
+                }).execute()
+
+            created_ids.append(ghost_id)
+
+        return created_ids
+    except Exception as e:
+        st.error(f"Errore creazione ghost: {e}")
+        return []
+
+def delete_ghosts():
+    """Elimina tutti i profili ghost e i relativi participants."""
+    try:
+        # Rimuove prima i partecipanti ghost
+        res_prof = supabase.table("profiles").select("id").eq("role", "ghost").execute()
+        ids = [r["id"] for r in res_prof.data] if res_prof.data else []
+
+        if ids:
+            supabase.table("participants").delete().in_("user_id", ids).execute()
+            supabase.table("profiles").delete().in_("id", ids).execute()
+
+        return len(ids)
+    except Exception as e:
+        st.error(f"Errore eliminazione ghost: {e}")
+        return 0
+
+# ---------- UI (interfaccia) ----------
 st.markdown("---")
 st.markdown("#### ⚙️ Debug: ghost accounts (solo test)")
 enable = st.checkbox("Enable debug ghost tools (solo in locale/testing)", key="enable_ghost_tools")
+
 if enable:
     col_a, col_b = st.columns([2,1])
     with col_a:
@@ -966,14 +1026,20 @@ if enable:
         add_parts = st.checkbox("Aggiungi i ghost come participants alla sessione specificata", value=True, key="ghost_add_part")
     with col_b:
         if st.button("Crea ghost"):
-            created = create_ghosts(n=int(n_ghost), session_id=(sess_input or None), add_as_participants=bool(add_parts and sess_input))
+            created = create_ghosts(
+                n=int(n_ghost),
+                session_id=(sess_input or None),
+                add_as_participants=bool(add_parts and sess_input)
+            )
             if created:
-                st.success(f"Creati {len(created)} ghost. Prime 5 ids: {', '.join(created[:5])}")
+                st.success(f"✅ Creati {len(created)} ghost. Prime 5 IDs: {', '.join(created[:5])}")
                 st.experimental_rerun()
+
     st.markdown(" ")
     if st.button("🗑️ Rimuovi tutti i ghost creati (role='ghost')"):
         removed = delete_ghosts()
-        st.warning(f"Eliminati {removed} ghost e relativi participants.")
+        st.warning(f"🗑️ Eliminati {removed} ghost e relativi participants.")
         st.experimental_rerun()
+
     st.markdown("***")
     st.info("Uso: crea ghost per testare creazione gruppi, cancellali dopo i test. Non abilitare in produzione.")
