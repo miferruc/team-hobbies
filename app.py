@@ -126,31 +126,63 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Errore login: {e}")
 
-        # ----- REGISTRAZIONE -----
-        with tab_signup:
-            st.markdown("**Crea un nuovo account universitario**")
-            email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
-            pwd1 = st.text_input("Password", type="password", key="signup_pwd1")
-            pwd2 = st.text_input("Ripeti Password", type="password", key="signup_pwd2")
+# ----- REGISTRAZIONE -----
+with tab_signup:
+    st.markdown("**Crea un nuovo account universitario**")
+    st.info("L’email universitaria è usata solo per creare gruppi di studio. Nessun dato è condiviso con terzi.")
 
-            if st.button("Crea account"):
-                if not email_reg or not pwd1 or not pwd2:
-                    st.warning("Compila tutti i campi.")
-                elif "@studenti." not in email_reg:
-                    st.warning("Usa un'email universitaria valida.")
-                elif pwd1 != pwd2:
-                    st.error("Le password non coincidono.")
-                elif len(pwd1) < 6:
-                    st.warning("La password deve avere almeno 6 caratteri.")
-                else:
+    email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
+    pwd1 = st.text_input("Password", type="password", key="signup_pwd1")
+    pwd2 = st.text_input("Ripeti Password", type="password", key="signup_pwd2")
+
+    consenso = st.checkbox(
+        "Acconsento al trattamento dei miei dati (email, preferenze, partecipazione alle sessioni) ai sensi del GDPR 2016/679, esclusivamente per la creazione di gruppi di studio.",
+        key="signup_consent"
+    )
+
+    if st.button("Crea account"):
+        if not email_reg or not pwd1 or not pwd2:
+            st.warning("Compila tutti i campi.")
+        elif not email_reg.endswith("@studenti.unibg.it"):
+            st.error("Puoi registrarti solo con email universitaria (@studenti.unibg.it).")
+        elif pwd1 != pwd2:
+            st.error("Le password non coincidono.")
+        elif len(pwd1) < 6:
+            st.warning("La password deve avere almeno 6 caratteri.")
+        elif not consenso:
+            st.error("Devi acconsentire al trattamento dati per procedere.")
+        else:
+            try:
+                res = supabase.auth.sign_up({"email": email_reg, "password": pwd1})
+                if res.user:
+                    # Salva/imposta consenso nel profilo subito
                     try:
-                        res = supabase.auth.sign_up({"email": email_reg, "password": pwd1})
-                        if res.user:
-                            st.success("✅ Registrazione completata! Ora puoi accedere.")
-                        else:
-                            st.warning("Errore durante la registrazione. Riprova.")
-                    except Exception as e:
-                        st.error(f"Errore registrazione: {e}")
+                        supabase.table("profiles").upsert({
+                            "id": res.user.id,
+                            "email": email_reg,
+                            "role": "student",
+                            "consenso_privacy": True,
+                            "consenso_timestamp": datetime.now().isoformat(),
+                        }, on_conflict="id").execute()
+                    except Exception:
+                        # fallback insert se upsert non disponibile
+                        try:
+                            supabase.table("profiles").insert({
+                                "id": res.user.id,
+                                "email": email_reg,
+                                "role": "student",
+                                "consenso_privacy": True,
+                                "consenso_timestamp": datetime.now().isoformat(),
+                            }).execute()
+                        except Exception:
+                            pass
+
+                    st.success("✅ Registrazione completata! Controlla la mail se è richiesta verifica, poi accedi.")
+                else:
+                    st.warning("Errore durante la registrazione. Riprova.")
+            except Exception as e:
+                st.error(f"Errore registrazione: {e}")
+
 
     else:
         # ----- LOGOUT -----
@@ -186,6 +218,9 @@ with tab1:
     from datetime import datetime
 
     st.title("👤 Profilo studente")
+
+    st.markdown(f"<div style='color:green;font-weight:bold'>Connesso come {user['email']}</div>", unsafe_allow_html=True)
+
 
     # --- Richiede login ---
     require_login()
@@ -303,14 +338,43 @@ with tab1:
     # 📊 RIEPILOGO PROFILO SALVATO
     # =====================================================
 
-    st.markdown("---")
-    st.subheader("📋 Riepilogo profilo")
-
     profile = load_profile(user_id)
     if profile:
+        consenso_txt = (
+            f"✅ Consenso privacy registrato il {profile.get('consenso_timestamp')[:10]}"
+            if profile.get("consenso_privacy")
+            else "❌ Consenso privacy non presente"
+        )
+        st.caption(consenso_txt)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Nome:** {profile.get('nome','—')}")
+            st.write(f"**Corso:** {profile.get('corso','—')}")
+            st.write(f"**Approccio:** {profile.get('approccio','—')}")
+        with col2:
+            st.write(f"**Materie fatte:** {', '.join(profile.get('materie_fatte',[]) or ['—'])}")
+            st.write(f"**Materie da fare:** {', '.join(profile.get('materie_dafare',[]) or ['—'])}")
+
+        st.markdown("**🎯 Obiettivi accademici:**")
+        st.write(", ".join(profile.get("obiettivi",[]) or ["—"]))
+
+        st.markdown("**🎨 Hobby principali:**")
+        hobby = profile.get("hobby", [])
+        if isinstance(hobby, str):
+            try:
+                import json
+                hobby = json.loads(hobby)
+            except Exception:
+                hobby = [hobby]
+        st.write(", ".join(hobby or ["—"]))
+
+        st.markdown("---")
+        st.markdown("**📦 Dati completi (debug):**")
         st.json(profile)
     else:
         st.info("Nessun profilo ancora salvato.")
+
    
 # =====================================================
 # TAB 2 — SESSIONI (Checkpoint 2 - compatibile con DB)
