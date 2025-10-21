@@ -703,174 +703,170 @@ with tab3:
         if st.button("🗑️ Cancella gruppi"):
             cancella_gruppi_da_sessione(session_id)
 
-     # =====================================================
-    # 📋 GRUPPI ESISTENTI (vista evoluta + hobby)
     # =====================================================
-    st.markdown("---")
-    st.subheader("📋 Gruppi creati")
+# 📋 GRUPPI ESISTENTI — vista compatta a schede
+# =====================================================
+st.markdown("---")
+st.subheader("📋 Gruppi creati")
 
-    # 🔁 Aggiornamento automatico ogni 10 s
-    try:
-        if hasattr(st, "autorefresh"):
-            st.autorefresh(interval=15000, key="refresh_gruppi")
-    except Exception:
-        pass
+# CSS rapido per ridurre spazi
+st.markdown("""
+<style>
+h3, h4, .stCaption, .stMarkdown { margin-bottom:.2rem; }
+div.stExpander { border:1px solid #2a2a2a; border-radius:8px; margin:.25rem 0; }
+div.stExpander > div > div { padding:.25rem .5rem; }
+</style>
+""", unsafe_allow_html=True)
 
-    try:
-        # Recupera tutti i gruppi per la sessione corrente
-        res = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
-        gruppi_data = res.data or []
-    except Exception as e:
-        st.error(f"Errore nel caricamento gruppi: {e}")
-        gruppi_data = []
+# 🔁 Aggiornamento periodico leggero
+try:
+    if hasattr(st, "autorefresh"):
+        st.autorefresh(interval=15000, key="refresh_gruppi")
+except Exception:
+    pass
 
-    if gruppi_data:
-        for g in gruppi_data:
+try:
+    res = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
+    gruppi_data = res.data or []
+except Exception as e:
+    st.error(f"Errore nel caricamento gruppi: {e}")
+    gruppi_data = []
+
+if not gruppi_data:
+    st.info("Nessun gruppo ancora creato.")
+else:
+    # griglia 2 colonne per occupare meno spazio in verticale
+    cols = st.columns(2)
+    for i, g in enumerate(gruppi_data):
+        with cols[i % 2]:
             nome_gruppo = g.get("nome_gruppo", "—")
             tema = g.get("tema", "—")
-            membri_ids = g.get("membri", [])
+            membri_ids = g.get("membri", []) or []
 
-            st.markdown(f"### 🔹 {nome_gruppo} — *Tema:* {tema}")
+            st.markdown(f"### {nome_gruppo} — *Tema:* {tema}")
             st.caption(f"👥 Membri: {len(membri_ids)}")
 
-            # Espandi dettagli gruppo
-            with st.expander(f"Mostra dettagli del gruppo {nome_gruppo}"):
+            # dettagli minimali solo su richiesta
+            with st.expander("Dettagli"):
                 try:
                     if membri_ids:
                         res_prof = supabase.table("profiles").select("nome,hobby").in_("id", membri_ids).execute()
-                        profili = res_prof.data
-                        hobby_totali = []
-
+                        profili = res_prof.data or []
                         for p in profili:
-                            nome = p.get("nome", "Sconosciuto")
-                            hobby_raw = p.get("hobby", [])
-                            if isinstance(hobby_raw, str):
+                            nome = p.get("nome") or "Sconosciuto"
+                            h = p.get("hobby", [])
+                            if isinstance(h, str):
                                 try:
                                     import json
-                                    hobby_raw = json.loads(hobby_raw)
+                                    h = json.loads(h)
                                 except Exception:
-                                    hobby_raw = [hobby_raw]
-                            elif not isinstance(hobby_raw, list):
-                                hobby_raw = [str(hobby_raw)]
-
-                            st.markdown(f"**{nome}** — 🎨 Hobby: {', '.join(hobby_raw or ['Nessuno'])}")
-                            hobby_totali.extend(hobby_raw)
-
-                        # Hobby collettivi del gruppo
-                        if hobby_totali:
-                            hobby_unici = sorted(set(hobby_totali))
-                            st.markdown("**🌈 Hobby condivisi dal gruppo:** " + ", ".join(hobby_unici))
-                        else:
-                            st.info("Nessun hobby registrato per questo gruppo.")
+                                    h = [h]
+                            elif not isinstance(h, list):
+                                h = [str(h)]
+                            st.markdown(f"• **{nome}** — 🎨 {', '.join(h or ['—'])}")
                     else:
                         st.info("Nessun membro in questo gruppo.")
                 except Exception as e:
-                    st.error(f"Errore nel caricamento dettagli gruppo: {e}")
+                    st.error(f"Errore dettagli gruppo: {e}")
 
-            st.divider()
-
-        st.caption("Aggiornamento automatico ogni 10 s.")
-    else:
-        st.info("Nessun gruppo ancora creato.")
     
-    # =====================================================
-    # 📊 DASHBOARD ANALITICA GRUPPI
-    # =====================================================
-    import pandas as pd
-    import matplotlib.pyplot as plt
+# =====================================================
+# 📊 DASHBOARD TOTALE SESSIONE — filtro unico
+# =====================================================
+import pandas as pd
+import matplotlib.pyplot as plt
 
-    st.markdown("---")
-    st.subheader("📊 Analisi dei gruppi")
+st.markdown("---")
+st.subheader("📊 Dashboard sessione")
 
-    try:
-        res_gruppi = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
-        gruppi_data = res_gruppi.data or []
+# prendi TUTTI i profili dei partecipanti della sessione in un'unica query
+try:
+    res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+    all_ids = sorted({p["user_id"] for p in (res_part.data or []) if p.get("user_id")})
+    if all_ids:
+        res_prof = supabase.table("profiles").select(
+            "id,approccio,hobby,materie_fatte,materie_dafare,obiettivi"
+        ).in_("id", all_ids).execute()
+        profili = res_prof.data or []
+    else:
+        profili = []
+except Exception as e:
+    st.error(f"Errore caricamento profili per dashboard: {e}")
+    profili = []
 
-        if gruppi_data:
-            for g in gruppi_data:
-                nome = g.get("nome_gruppo", "—")
-                membri = g.get("membri", [])
+if not profili:
+    st.info("Nessun dato da visualizzare.")
+else:
+    metrica = st.selectbox(
+        "Mostra distribuzione di:",
+        [
+            "Hobby",
+            "Materie già superate",
+            "Materie ancora da sostenere",
+            "Obiettivi accademici",
+            "Approccio allo studio",
+        ],
+        index=0,
+        help="Scegli cosa analizzare sul totale della sessione."
+    )
 
-                st.markdown(f"### 🔸 {nome}")
+    # normalizzazione campi lista
+    def norm_list(x):
+        if isinstance(x, str):
+            try:
+                import json
+                x = json.loads(x)
+            except Exception:
+                x = [x]
+        if x is None:
+            return []
+        return x if isinstance(x, list) else [str(x)]
 
-                if not membri:
-                    st.info("Nessun membro in questo gruppo.")
-                    continue
+    items = []
+    label = ""
+    if metrica == "Hobby":
+        label = "Hobby"
+        for p in profili:
+            items += norm_list(p.get("hobby"))
+    elif metrica == "Materie già superate":
+        label = "Materie"
+        for p in profili:
+            items += norm_list(p.get("materie_fatte"))
+    elif metrica == "Materie ancora da sostenere":
+        label = "Materie"
+        for p in profili:
+            items += norm_list(p.get("materie_dafare"))
+    elif metrica == "Obiettivi accademici":
+        label = "Obiettivi"
+        for p in profili:
+            items += norm_list(p.get("obiettivi"))
+    else:  # Approccio allo studio
+        label = "Approcci"
+        for p in profili:
+            v = p.get("approccio")
+            if v:
+                items.append(str(v))
 
-                # Recupera profili
-                res_prof = supabase.table("profiles").select("nome,hobby,approccio").in_("id", membri).execute()
-                profili = res_prof.data or []
-                if not profili:
-                    st.info("Profili non trovati.")
-                    continue
+    # conta e mostra top 12
+    s = pd.Series([i for i in items if i]).value_counts().head(12)
 
-                # Analisi approcci
-                df = pd.DataFrame(profili)
-                if "approccio" in df.columns and not df["approccio"].isna().all():
-                    counts = df["approccio"].value_counts()
-                    fig, ax = plt.subplots()
-                    counts.plot(kind="bar", ax=ax)
-                    ax.set_title(f"Approcci allo studio nel gruppo {nome}")
-                    ax.set_ylabel("Numero studenti")
-                    st.pyplot(fig)
-                else:
-                    st.info("Nessun dato sugli approcci.")
+    if s.empty:
+        st.info("Nessun dato disponibile per la metrica selezionata.")
+    else:
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        s.sort_values(ascending=True).plot(kind="barh", ax=ax)
+        ax.set_xlabel("Numero studenti")
+        ax.set_ylabel(label)
+        ax.set_title(f"Distribuzione {metrica.lower()} — totale sessione")
+        st.pyplot(fig)
 
-                # Analisi hobby
-                all_hobby = []
-                for p in profili:
-                    raw = p.get("hobby", [])
-                    if isinstance(raw, str):
-                        try:
-                            import json
-                            raw = json.loads(raw)
-                        except Exception:
-                            raw = [raw]
-                    elif not isinstance(raw, list):
-                        raw = [str(raw)]
-                    all_hobby.extend(raw)
-
-                if all_hobby:
-                    freq = pd.Series(all_hobby).value_counts().head(5)
-                    st.write("🎨 **Hobby più condivisi:**")
-                    for h, n in freq.items():
-                        st.write(f"- {h}: {n} studenti")
-                else:
-                    st.info("Nessun hobby registrato.")
-                
-                # Calcolo affinità media del gruppo
-                def sim(a, b):
-                    inter = len(set(a) & set(b))
-                    tot = len(set(a) | set(b))
-                    return inter / tot if tot else 0
-
-                sim_list = []
-                for i in range(len(profili)):
-                    for j in range(i + 1, len(profili)):
-                        h1 = profili[i].get("hobby", [])
-                        h2 = profili[j].get("hobby", [])
-                        if isinstance(h1, str):
-                            try:
-                                h1 = json.loads(h1)
-                            except Exception:
-                                h1 = [h1]
-                        if isinstance(h2, str):
-                            try:
-                                h2 = json.loads(h2)
-                            except Exception:
-                                h2 = [h2]
-                        sim_list.append(sim(h1, h2))
-
-                affinità = round(sum(sim_list) / len(sim_list), 2) if sim_list else 0
-                st.progress(affinità)
-                st.caption(f"Affinità media del gruppo: **{affinità * 100:.0f}%**")
-                st.divider()
-
-        else:
-            st.info("Nessun gruppo disponibile per analisi.")
-    except Exception as e:
-        st.error(f"Errore durante l’analisi gruppi: {e}")
-
+        # mini tabella riassuntiva
+        st.caption("Valori principali")
+        st.dataframe(
+            pd.DataFrame({label: s.index, "n": s.values}),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # ---------------------------
 # DEBUG: creazione / rimozione account "ghost" per test
