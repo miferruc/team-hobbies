@@ -895,7 +895,7 @@ def make_fake_profile():
         "Prepararmi per la carriera futura"
     ], k=random.randint(1,2))
     return {
-        "id": uuid.uuid4().hex,
+        "id": str(uuid.uuid4()),
         "email": f"ghost_{uuid.uuid4().hex[:8]}@example.com",
         "nome": nome,
         "corso": corso,
