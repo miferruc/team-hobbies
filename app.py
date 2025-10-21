@@ -516,61 +516,8 @@ elif pagina == "dashboard":
                 st.warning("⏳ Non sei ancora stato assegnato a un gruppo. Attendi che l'admin completi il matching.")
     except Exception as e:
         st.error(f"Errore durante il caricamento del gruppo: {e}")
-# =====================================================
-# 👻 FUNZIONE DI CREAZIONE UTENTI GHOST PER TEST
-# =====================================================
-def crea_utenti_ghost(session_id: str, n: int = 10):
-    """Crea utenti fittizi (ghost) e li iscrive alla sessione indicata."""
-    try:
-        # 1️⃣ Recupera la sessione
-        res_sess = supabase.table("sessioni").select("materia").eq("id", session_id).execute()
-        if not res_sess.data:
-            st.error("Sessione non trovata.")
-            return
-        materia = res_sess.data[0].get("materia", "Test")
 
-        ghost_ids = []
-        for i in range(n):
-            uid = f"ghost_{session_id}_{i+1}"
-            nome = f"Ghost User {i+1}"
-            email = f"ghost{i+1}@syntia.fake"
-
-            # 🔧 Crea profilo ghost (se non esiste)
-            try:
-                supabase.table("profiles").insert({
-                    "id": uid,
-                    "email": email,
-                    "nome": nome,
-                    "corso": "Economia",
-                    "materie_fatte": [],
-                    "materie_dafare": [materia],
-                    "hobby": ["Test"],
-                    "approccio": "In gruppo e con confronto",
-                    "obiettivi": ["Simulazione gruppi"],
-                    "role": "student"
-                }).execute()
-            except Exception:
-                # se già esiste, ignora
-                pass
-
-            # 🔧 Iscrive l’utente ghost alla sessione
-            try:
-                supabase.table("participants").insert({
-                    "user_id": uid,
-                    "session_id": session_id
-                }).execute()
-                ghost_ids.append(uid)
-            except Exception:
-                # se già iscritto, ignora
-                pass
-
-        st.success(f"✅ Creati e iscritti {len(ghost_ids)} utenti ghost alla sessione '{materia}'")
-        st.info(f"ID generati: {', '.join(ghost_ids)}")
-
-    except Exception as e:
-        st.error(f"Errore durante la creazione utenti ghost: {e}")
-
-
+    
 # =====================================================
 # 🧠 FASE 4 – COMMAND CENTER (ADMIN)
 # =====================================================
@@ -578,107 +525,6 @@ elif pagina == "admin_panel":
     st.title("🧠 Command Center (Admin)")
     st.markdown("Gestisci le sessioni di lezione e genera QR code per l'accesso degli studenti.")
     st.divider()
-
-    # --- LISTA SESSIONI ATTIVE ---
-    st.subheader("📋 Sessioni attive")
-    try:
-        res = supabase.table("sessioni").select("*").order("timestamp", desc=True).execute()  # 🔧 corretto
-        sessioni = res.data
-    except Exception as e:
-        st.error(f"Errore nel caricamento delle sessioni: {e}")
-        sessioni = []
-
-    if sessioni:
-        for s in sessioni:
-            with st.expander(f"📘 {s['nome']} – {s['materia']} ({s['data']})"):
-                st.markdown(f"**Tema gruppi:** {s.get('tema', '-')}")  
-                st.markdown(f"**Creato da:** {s.get('creato_da', '-')}")  
-                st.markdown(f"**Link pubblico:** `{s.get('link_pubblico', '-')}`")  
-
-                qr_buf = generate_qr_code(s["link_pubblico"])
-                st.image(qr_buf, caption="QR Code sessione", width=180)
-
-                # --- 👥 LISTA PARTECIPANTI SESSIONE ---
-                st.markdown("### 👥 Partecipanti iscritti")
-
-                aggiorna = st.button(f"🔄 Aggiorna lista partecipanti ({s['id']})")
-
-                try:
-                    if aggiorna or True:
-                        res_part = supabase.table("participants") \
-                            .select("user_id") \
-                            .eq("session_id", s["id"]).execute()
-
-                        if res_part.data:
-                            partecipanti_ids = [p["user_id"] for p in res_part.data]
-
-                            res_prof = supabase.table("profiles") \
-                                .select("email, nome") \
-                                .in_("id", partecipanti_ids).execute()
-
-                            partecipanti = [
-                                f"{p.get('nome', 'Sconosciuto')} ({p.get('email', 'no email')})"
-                                for p in res_prof.data
-                            ]
-
-                            st.selectbox(
-                                "Partecipanti registrati:",
-                                options=partecipanti,
-                                index=0 if partecipanti else None,
-                                key=f"sel_part_{s['id']}"
-                            )
-
-                            totale = len(partecipanti)
-                            st.info(f"Totale partecipanti: **{totale}**")
-
-                            if totale < 3:
-                                st.warning("⚠️ Servono almeno 3 studenti per creare i gruppi.")
-                                crea_attivo = False
-                            else:
-                                crea_attivo = True
-                        else:
-                            st.warning("Nessuno studente ha ancora scansionato il QR code.")
-                            crea_attivo = False
-                except Exception as e:
-                    st.error(f"Errore nel caricamento partecipanti: {e}")
-                    crea_attivo = False
-
-                st.markdown("---")
-
-                # --- 🤝 CREA GRUPPI ---
-                if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}", key=f"crea_{s['id']}"):
-                    crea_gruppi_da_sessione(s["id"])
-                elif not crea_attivo:
-                    st.info("🔒 Il pulsante 'Crea gruppi' si attiverà automaticamente quando ci saranno almeno 3 partecipanti.")
-
-                st.markdown("---")
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    if st.button(f"📋 Copia link ({s['id']})", key=f"copy_{s['id']}"):
-                        st.code(s["link_pubblico"])
-                with col2:
-                    if st.button(f"🗑️ Elimina sessione ({s['id']})", key=f"delete_{s['id']}"):
-                        try:
-                            supabase.table("sessioni").delete().eq("id", s["id"]).execute()
-                            st.success("Sessione eliminata con successo ✅")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Errore durante l'eliminazione: {e}")
-                with col3:
-                    label_ghost = f"👻 Crea 10 utenti ghost per {s.get('nome', 'questa sessione')}"
-                    if st.button(label_ghost, key=f"ghost_{s['id']}"):
-                        crea_utenti_ghost(s["id"], n=10)
-    else:
-        st.info("Nessuna sessione creata finora.")
-
-
-# --- 👻 CREA UTENTI GHOST PER TEST ---
-label_ghost = f"👻 Crea 10 utenti ghost per {s.get('nome', 'questa sessione')}"
-if st.button(label_ghost, key=f"ghost_{s['id']}"):
-    crea_utenti_ghost(s["id"], n=10)
-
-
 
     # --- CREAZIONE SESSIONE ---
     st.subheader("📅 Crea una nuova sessione")
@@ -753,6 +599,100 @@ if st.button(label_ghost, key=f"ghost_{s['id']}"):
     st.divider()
 
 
+# --- LISTA SESSIONI ATTIVE ---
+st.subheader("📋 Sessioni attive")
+try:
+    res = supabase.table("sessioni").select("*").order("timestamp", desc=True).execute()  # 🔧 corretto
+    sessioni = res.data
+except Exception as e:
+    st.error(f"Errore nel caricamento delle sessioni: {e}")
+    sessioni = []
+
+if sessioni:
+    for s in sessioni:
+        with st.expander(f"📘 {s['nome']} – {s['materia']} ({s['data']})"):
+            st.markdown(f"**Tema gruppi:** {s.get('tema', '-')}")  
+            st.markdown(f"**Creato da:** {s.get('creato_da', '-')}")  
+            st.markdown(f"**Link pubblico:** `{s.get('link_pubblico', '-')}`")  
+
+            qr_buf = generate_qr_code(s["link_pubblico"])
+            st.image(qr_buf, caption="QR Code sessione", width=180)
+
+            # --- 👥 LISTA PARTECIPANTI SESSIONE ---
+            st.markdown("### 👥 Partecipanti iscritti")
+
+            # Pulsante per aggiornare la lista
+            aggiorna = st.button(f"🔄 Aggiorna lista partecipanti ({s['id']})")
+
+            try:
+                if aggiorna or True:
+                    res_part = supabase.table("participants") \
+                        .select("user_id") \
+                        .eq("session_id", s["id"]).execute()
+
+                    if res_part.data:
+                        partecipanti_ids = [p["user_id"] for p in res_part.data]
+
+                        # Recupera i profili degli utenti
+                        res_prof = supabase.table("profiles") \
+                            .select("email, nome") \
+                            .in_("id", partecipanti_ids).execute()
+
+                        partecipanti = [
+                            f"{p.get('nome', 'Sconosciuto')} ({p.get('email', 'no email')})"
+                            for p in res_prof.data
+                        ]
+
+                        # Mostra la lista
+                        st.selectbox(
+                            "Partecipanti registrati:",
+                            options=partecipanti,
+                            index=0 if partecipanti else None,
+                            key=f"sel_part_{s['id']}"
+                        )
+
+                        totale = len(partecipanti)
+                        st.info(f"Totale partecipanti: **{totale}**")
+
+                        # Blocco creazione gruppi se meno di 3
+                        if totale < 3:
+                            st.warning("⚠️ Servono almeno 3 studenti per creare i gruppi.")
+                            crea_attivo = False
+                        else:
+                            crea_attivo = True
+                    else:
+                        st.warning("Nessuno studente ha ancora scansionato il QR code.")
+                        crea_attivo = False
+            except Exception as e:
+                st.error(f"Errore nel caricamento partecipanti: {e}")
+                crea_attivo = False
+            # --- 👥 FINE LISTA PARTECIPANTI ---
+
+            st.markdown("---")
+
+            # --- 🤝 CREA GRUPPI ---
+            if crea_attivo and st.button(f"🤝 Crea gruppi per {s['nome']}"):
+                crea_gruppi_da_sessione(s["id"])
+            elif not crea_attivo:
+                st.info("🔒 Il pulsante 'Crea gruppi' si attiverà automaticamente quando ci saranno almeno 3 partecipanti.")
+
+            st.markdown("---")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(f"📋 Copia link ({s['id']})"):
+                    st.code(s["link_pubblico"])
+            with col2:
+                if st.button(f"🗑️ Elimina sessione ({s['id']})"):
+                    try:
+                        supabase.table("sessioni").delete().eq("id", s["id"]).execute()  # 🔧 corretto
+                        st.success("Sessione eliminata con successo ✅")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Errore durante l'eliminazione: {e}")
+else:
+    st.info("Nessuna sessione creata finora.")
+
 
 
 # =====================================================
@@ -784,47 +724,3 @@ def pulisci_gruppi_finti(user_id):
         st.success("🧹 Gruppi di test eliminati con successo!")
     except Exception as e:
         st.error(f"Errore durante la pulizia dei gruppi: {e}")
-
-# =====================================================
-# 🤝 FUNZIONE DI CREAZIONE GRUPPI REALI DA SESSIONE
-# =====================================================
-def crea_gruppi_da_sessione(session_id: str, max_size: int = 4):
-    """Crea gruppi reali a partire dai partecipanti di una sessione."""
-    try:
-        # 1️⃣ Recupera la sessione
-        res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
-        if not res_sess.data:
-            st.error("Sessione non trovata.")
-            return
-        sessione = res_sess.data[0]
-        tema = sessione.get("tema", "Generico")
-
-        # 2️⃣ Recupera tutti i partecipanti
-        res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
-        partecipanti = [p["user_id"] for p in res_part.data]
-
-        if len(partecipanti) < 3:
-            st.warning("Servono almeno 3 partecipanti per creare gruppi.")
-            return
-
-        # 3️⃣ Mischia e suddividi in sottogruppi
-        random.shuffle(partecipanti)
-        gruppi_creati = []
-        for i in range(0, len(partecipanti), max_size):
-            membri = partecipanti[i:i + max_size]
-            nome_gruppo = f"{tema}_{i//max_size + 1}"
-            gruppo = {
-                "nome_gruppo": nome_gruppo,
-                "tema": tema,
-                "session_id": session_id,
-                "membri": membri,
-                "data_creazione": datetime.now().isoformat()
-            }
-            supabase.table("gruppi").insert(gruppo).execute()
-            gruppi_creati.append(nome_gruppo)
-
-        st.success(f"✅ Creati {len(gruppi_creati)} gruppi per la sessione '{sessione['nome']}'")
-        st.info(f"Gruppi: {', '.join(gruppi_creati)}")
-
-    except Exception as e:
-        st.error(f"Errore durante la creazione dei gruppi: {e}")
