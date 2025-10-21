@@ -203,15 +203,8 @@ with tab1:
         st.json(profile)
     else:
         st.info("Nessun profilo ancora salvato.")
-
+   
 # =====================================================
-# TAB 2 — SESSIONI
-# =====================================================
-with tab2:
-    st.title("🏫 Creazione sessione")
-    st.info("Qui potrai creare una sessione e generare il QR code per la classe.")
-    
-    # =====================================================
 # TAB 2 — SESSIONI (Checkpoint 2 - compatibile con DB)
 # =====================================================
 with tab2:
@@ -306,12 +299,156 @@ with tab2:
             st.info("Nessuna sessione creata ancora.")
     except Exception as e:
         st.error(f"Errore nel caricamento delle sessioni: {e}")
-
-
 # =====================================================
-# TAB 3 — GRUPPI
+# TAB 3 — GRUPPI E PARTECIPANTI (Auto-refresh partecipanti + gruppi)
 # =====================================================
 with tab3:
+    import random
+    from datetime import datetime
+
     st.title("🤝 Gruppi e partecipanti")
-    st.info("Qui vedrai la lista di studenti che hanno fatto join e potrai creare gruppi.")
-    st.write("⚙️ Da implementare nel Checkpoint 3.")
+
+    require_login()
+    user = st.session_state.auth_user
+    user_id = user["id"]
+
+    # --- Recupera query string ---
+    qp = st.query_params if hasattr(st, "query_params") else {}
+    session_id = qp.get("session_id")
+    if isinstance(session_id, list):
+        session_id = session_id[0]
+
+    if not session_id:
+        st.info("Scansiona un QR code o apri un link di sessione per unirti.")
+        st.stop()
+
+    # --- Recupera dettagli sessione ---
+    try:
+        res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
+        if not res_sess.data:
+            st.error("Sessione non trovata.")
+            st.stop()
+        sessione = res_sess.data[0]
+        st.success(f"🎓 Sessione trovata: **{sessione['nome']}** – Tema *{sessione.get('tema','N/D')}*")
+    except Exception as e:
+        st.error(f"Errore nel caricamento sessione: {e}")
+        st.stop()
+
+    # --- Join automatico (participants) ---
+    try:
+        res_check = (
+            supabase.table("participants")
+            .select("*")
+            .eq("session_id", session_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not res_check.data:
+            supabase.table("participants").insert({
+                "user_id": user_id,
+                "session_id": session_id,
+                "joined_at": datetime.now().isoformat(),
+            }).execute()
+            st.success("✅ Ti sei unito alla sessione!")
+        else:
+            st.info("Sei già iscritto a questa sessione ✅")
+    except Exception as e:
+        st.error(f"Errore durante l’unione alla sessione: {e}")
+
+    # =====================================================
+    # 👥 LISTA PARTECIPANTI (auto-refresh 5s)
+    # =====================================================
+    st.markdown("### 👥 Studenti collegati")
+
+    try:
+        if hasattr(st, "autorefresh"):
+            st.autorefresh(interval=5000, key="refresh_partecipanti")
+    except Exception:
+        pass
+
+    try:
+        res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+        ids = [p["user_id"] for p in res_part.data]
+        if ids:
+            res_prof = supabase.table("profiles").select("nome").in_("id", ids).execute()
+            nomi = [p["nome"] for p in res_prof.data if p.get("nome")]
+            st.write(", ".join(sorted(nomi)))
+            st.caption(f"Aggiornamento automatico ogni 5 s — {len(nomi)} studenti collegati.")
+        else:
+            st.info("Ancora nessun partecipante.")
+    except Exception as e:
+        st.error(f"Errore nel caricamento partecipanti: {e}")
+
+    # =====================================================
+    # 🔀 CREAZIONE GRUPPI AUTOMATICI
+    # =====================================================
+    temi_gruppi = {
+        "Anime": ["Akira", "Totoro", "Naruto", "Luffy", "Saitama", "Asuka", "Shinji", "Kenshin"],
+        "Sport": ["Maradona", "Jordan", "Federer", "Bolt", "Ali", "Phelps", "Serena"],
+        "Spazio": ["Apollo", "Orion", "Luna", "Cosmos", "Nova", "Mars"],
+        "Natura": ["Quercia", "Rosa", "Vento", "Onda", "Sole", "Mare", "Cielo"],
+        "Tecnologia": ["Byte", "Pixel", "Quantum", "Neural", "Circuit", "Code"],
+        "Storia": ["Roma", "Atene", "Sparta", "Troia", "Cartagine", "Babilonia"],
+        "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
+    }
+
+    def crea_gruppi_da_sessione(session_id, size=4):
+        try:
+            res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+            ids = [p["user_id"] for p in res_part.data]
+            if not ids:
+                st.warning("Nessun partecipante iscritto.")
+                return
+
+            res_prof = supabase.table("profiles").select("*").in_("id", ids).execute()
+            profili = res_prof.data
+            random.shuffle(profili)
+
+            gruppi = [profili[i:i + size] for i in range(0, len(profili), size)]
+            tema = sessione.get("tema", "Generico")
+            nomi_tema = temi_gruppi.get(tema, [f"Gruppo{i+1}" for i in range(len(gruppi))])
+            random.shuffle(nomi_tema)
+
+            for i, g in enumerate(gruppi):
+                membri = [p["id"] for p in g]
+                nome_gruppo = nomi_tema[i % len(nomi_tema)]
+
+                supabase.table("gruppi").insert({
+                    "sessione_id": session_id,
+                    "nome_gruppo": nome_gruppo,
+                    "membri": membri,
+                    "tema": tema,
+                    "materia": sessione.get("materia", ""),
+                    "data_creazione": datetime.now().isoformat(),
+                }).execute()
+
+            st.success(f"✅ Creati {len(gruppi)} gruppi a tema *{tema}*.")
+        except Exception as e:
+            st.error(f"Errore nella creazione gruppi: {e}")
+
+    if st.button("🤝 Crea gruppi ora"):
+        crea_gruppi_da_sessione(session_id)
+
+    # =====================================================
+    # 📋 GRUPPI ESISTENTI (auto-refresh 10s)
+    # =====================================================
+    st.markdown("---")
+    st.subheader("📋 Gruppi creati")
+
+    try:
+        if hasattr(st, "autorefresh"):
+            st.autorefresh(interval=10000, key="refresh_gruppi")
+    except Exception:
+        pass
+
+    try:
+        res = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
+        if res.data:
+            for g in res.data:
+                membri = ", ".join(g.get("membri", []))
+                st.write(f"• **{g['nome_gruppo']}** ({g.get('tema','')}) → {membri}")
+            st.caption("Aggiornamento automatico ogni 10 s.")
+        else:
+            st.info("Nessun gruppo ancora creato.")
+    except Exception as e:
+        st.error(f"Errore nel caricamento gruppi: {e}")
