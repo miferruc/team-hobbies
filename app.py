@@ -6,6 +6,70 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime
 
+# =====================================================
+# 💅 STILE GLOBALE UI
+# =====================================================
+st.markdown("""
+<style>
+/* Colori generali */
+body {
+    background-color: #0E1117;
+    color: #FAFAFA;
+}
+
+/* Titoli */
+h1, h2, h3, h4 {
+    color: #E8E8E8;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+}
+
+/* Pulsanti */
+div.stButton > button {
+    background-color: #0066cc;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.4em 1em;
+    font-weight: 600;
+    transition: 0.2s;
+}
+div.stButton > button:hover {
+    background-color: #0052a3;
+    transform: scale(1.02);
+}
+
+/* Cards / box */
+.card {
+    background-color: #1E1E1E;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 0.8em 1em;
+    margin-bottom: 0.6em;
+    box-shadow: 0px 2px 6px rgba(0,0,0,0.2);
+}
+
+/* Tabelle */
+thead tr th {
+    background-color: #222 !important;
+    color: #f1f1f1 !important;
+}
+tbody tr:nth-child(even) {
+    background-color: #191919 !important;
+}
+
+/* Download button */
+.css-1q8dd3e edgvbvh3 {
+    background: #0066cc;
+    border-radius: 8px;
+    color: white;
+}
+
+/* Separatori */
+hr {border: 0; border-top: 1px solid #444;}
+</style>
+""", unsafe_allow_html=True)
+
 
 # =====================================================
 # 🍪 COOKIE MANAGER — persistenza login
