@@ -916,16 +916,16 @@ def create_ghosts(n=20, session_id=None, add_as_participants=False):
         for g in batch:
     # usa insert with upsert per evitare errore FK
             supabase.rpc("insert_ghost_profile", {
-                "id": g["id"],
-                "email": g["email"],
-                "nome": g["nome"],
-                "corso": g["corso"],
-                "materie_fatte": json.dumps(g["materie_fatte"]),
-                "materie_dafare": json.dumps(g["materie_dafare"]),
-                "hobby": json.dumps(g["hobby"]),
-                "approccio": g["approccio"],
-                "obiettivi": json.dumps(g["obiettivi"]),
-                "role": "ghost",
+                "p_id": ghost_id,
+                "p_email": email,
+                "p_nome": nome,
+                "p_corso": corso,
+                "p_materie_fatte": [],
+                "p_materie_dafare": [],
+                "p_hobby": [],
+                "p_approccio": "bilanciato",
+                "p_obiettivi": [],
+                "p_role": "ghost"
             }).execute()
 
         created = [p["id"] for p in batch]
