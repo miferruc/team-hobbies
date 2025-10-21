@@ -367,108 +367,60 @@ if pagina == "profilo":
             st.session_state["menu_principale"] = "Profilo"
             st.rerun()
 
-elif pagina == "dashboard":
-    
-    # =====================================================
-    # 🔗 FASE 5A – JOIN VIA QR (versione aggiornata)
-    # =====================================================
-    qp = st.query_params
-    session_id = None
-    if "session_id" in qp:
-        val = qp["session_id"]
-        session_id = val[0] if isinstance(val, list) else val
+# --- Titolo Dashboard ---
+st.title("🎓 Dashboard Studente")
 
+# --- 🔄 JOIN SESSIONE TRAMITE QR ---
+if session_id:
+    try:
+        res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
+        if not res_sess.data:
+            st.error("❌ Sessione non trovata. Verifica il link.")
+        else:
+            sessione = res_sess.data[0]
+            st.info(f"🎓 Sessione trovata: **{sessione['nome']}** – tema *{sessione['tema']}*")
 
-    # --- 🔐 FIX LOGIN VIA QR (persistente) ---
-    # Se l'utente non è loggato ma ha scansionato un QR → salva e interrompi
-    if session_id and not st.session_state.get("auth_user"):
-        st.session_state["pending_session_id"] = session_id
-        st.warning("⚠️ Effettua prima il login per unirti alla sessione.")
-        st.stop()
-
-    # Dopo il login → se esiste una sessione pending → unisciti automaticamente
-    if st.session_state.get("auth_user") and st.session_state.get("pending_session_id"):
-        try:
+            # 🔐 Iscrivi l'utente alla sessione se non presente
             user_id = st.session_state.auth_user["id"]
-            pending_session = st.session_state["pending_session_id"]
-
-            # Verifica se già iscritto
-            res_check = supabase.table("participants").select("*") \
-                .eq("session_id", pending_session).eq("user_id", user_id).execute()
+            res_check = (
+                supabase.table("participants")
+                .select("user_id")
+                .eq("session_id", session_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
 
             if not res_check.data:
                 supabase.table("participants").insert({
                     "user_id": user_id,
-                    "session_id": pending_session
+                    "session_id": session_id
                 }).execute()
-                st.success("✅ Ti sei unito automaticamente alla sessione!")
+                st.success("✅ Ti sei unito con successo alla sessione!")
+                st.rerun()
+
+            # --- 👥 Lista studenti attualmente nella sessione ---
+            st.markdown("### 👥 Studenti collegati in questa sessione")
+            res_part = (
+                supabase.table("participants")
+                .select("user_id")
+                .eq("session_id", session_id)
+                .execute()
+            )
+            ids = [p["user_id"] for p in res_part.data]
+
+            if ids:
+                res_prof = supabase.table("profiles").select("nome").in_("id", ids).execute()
+                nomi = [p.get("nome") or "Senza nome" for p in res_prof.data]
+                st.write(", ".join(nomi))
             else:
-                st.info("Sei già iscritto a questa sessione ✅")
+                st.info("Ancora nessuno collegato.")
 
-            # Rimuovi il pending ID e resetta la query string
-            del st.session_state["pending_session_id"]
-            st.query_params.update({"session_id": pending_session})
-            st.rerun()
+            # 🤝 Creazione gruppi
+            if st.button("🤝 Crea gruppi ora"):
+                crea_gruppi_da_sessione(session_id)
 
-        except Exception as e:
-            st.error(f"Errore durante l’unione automatica alla sessione: {e}")
-
-    # --- Titolo Dashboard ---
-    st.title("🎓 Dashboard Studente")
-
-    st_autorefresh = st.experimental_memo.clear if False else None  # placeholder per compat
-    from streamlit import runtime
-    try:
-        st.experimental_rerun  # check API
-        st_autorefresh = st.autorefresh if hasattr(st, "autorefresh") else None
-    except:
-        st_autorefresh = None
-
-    if st_autorefresh:
-        st_autorefresh(interval=5000, key="refresh_presenti")
-
-
-
-    # --- 🔄 JOIN SESSIONE TRAMITE QR ---
-    if session_id:
-        try:
-            res_sess = supabase.table("sessioni").select("*").eq("id", session_id).execute()
-            if not res_sess.data:
-                st.error("❌ Sessione non trovata. Verifica il link.")
-            else:
-                sessione = res_sess.data[0]
-                st.info(f"🎓 Sessione trovata: **{sessione['nome']}** – tema *{sessione['tema']}*")
-                
-                # 🔐 Iscrivi l'utente alla sessione se non presente
-                user_id = st.session_state.auth_user["id"]
-                res_check = supabase.table("participants").select("*") \
-                    .eq("session_id", session_id).eq("user_id", user_id).execute()
-
-                if res_check.data:
-                    st.info("Sei già iscritto a questa sessione ✅")
-                else:
-                    supabase.table("participants").insert({
-                        "user_id": user_id,
-                        "session_id": session_id
-                    }).execute()
-                    st.success("✅ Ti sei unito con successo alla sessione!")
-                    st.rerun()
-
-                # --- 👥 Lista studenti attualmente nella sessione ---
-                st.markdown("### 👥 Studenti collegati in questa sessione")
-
-                res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
-                ids = [p["user_id"] for p in res_part.data]
-                if ids:
-                    res_prof = supabase.table("profiles").select("nome").in_("id", ids).execute()
-                    nomi = [p["nome"] for p in res_prof.data if p.get("nome")]
-                    st.write(", ".join(nomi))
-                else:
-                    st.info("Ancora nessuno collegato.")
-
-                if st.button("🤝 Crea gruppi ora"):
-                    crea_gruppi_da_sessione(session_id)
-
+    except Exception as e:
+        st.error(f"Errore durante il join della sessione: {e}")
 
     # =====================================================
     # 📊 FASE 5B–5C: DASHBOARD STUDENTE + GRUPPI
