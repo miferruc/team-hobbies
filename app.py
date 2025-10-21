@@ -67,6 +67,28 @@ with st.sidebar:
 # =====================================================
 # 🧩 CONTENUTO PRINCIPALE
 # =====================================================
+
+# =====================================================
+# 🧭 MENU PRINCIPALE A TABS
+# =====================================================
+
+tab1, tab2, tab3 = st.tabs(["👤 Profilo", "🏫 Sessioni", "🤝 Gruppi"])
+
+with tab1:
+    st.markdown("## 👤 Profilo studente")
+    # Il codice del profilo (quello dal blocco CHECKPOINT 1) va qui dentro
+
+with tab2:
+    st.title("🏫 Creazione sessione")
+    st.info("Qui potrai creare una sessione e generare il QR code per la classe.")
+    st.write("⚙️ Da implementare nel Checkpoint 2.")
+
+with tab3:
+    st.title("🤝 Gruppi e partecipanti")
+    st.info("Qui vedrai la lista di studenti che hanno fatto join e potrai creare gruppi.")
+    st.write("⚙️ Da implementare nel Checkpoint 3.")
+
+
 # =====================================================
 # 🎯 CHECKPOINT 1 — PROFILO STUDENTE (allineato a Supabase)
 # =====================================================
