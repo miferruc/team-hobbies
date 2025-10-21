@@ -1056,3 +1056,52 @@ if enable:
 
     st.markdown("***")
     st.info("Uso: crea ghost per testare creazione gruppi, cancellali dopo i test. Non abilitare in produzione.")
+
+    # =====================================================
+# 📥 ESPORTAZIONE CSV GRUPPI (per docenti)
+# =====================================================
+import io
+import pandas as pd
+
+st.markdown("---")
+st.subheader("📥 Esporta gruppi in CSV")
+
+try:
+    # Recupera gruppi e membri
+    res_gr = supabase.table("gruppi").select("sessione_id,nome_gruppo,membri").eq("sessione_id", session_id).execute()
+    gruppi = res_gr.data or []
+
+    if not gruppi:
+        st.info("Nessun gruppo disponibile per l'esportazione.")
+    else:
+        # Costruzione lista righe: sessione, gruppo, nome
+        righe = []
+        for g in gruppi:
+            membri = g.get("membri", []) or []
+            if not membri:
+                continue
+            # Recupera nomi partecipanti
+            res_prof = supabase.table("profiles").select("id,nome").in_("id", membri).execute()
+            for p in (res_prof.data or []):
+                righe.append({
+                    "Sessione": g.get("sessione_id", "—"),
+                    "Nome gruppo": g.get("nome_gruppo", "—"),
+                    "Nome partecipante": p.get("nome", "—")
+                })
+
+        if righe:
+            df = pd.DataFrame(righe)
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
+
+            st.download_button(
+                label="📥 Scarica CSV gruppi",
+                data=csv_buffer.getvalue(),
+                file_name=f"gruppi_sessione_{session_id}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Nessun partecipante trovato nei gruppi.")
+except Exception as e:
+    st.error(f"Errore durante l'esportazione: {e}")
+
