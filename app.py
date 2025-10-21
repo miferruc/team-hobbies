@@ -547,25 +547,70 @@ with tab3:
         crea_gruppi_da_sessione(session_id)
 
     # =====================================================
-    # 📋 GRUPPI ESISTENTI (auto-refresh 10s)
+    # 📋 GRUPPI ESISTENTI (con selezione e lista hobby)
     # =====================================================
     st.markdown("---")
     st.subheader("📋 Gruppi creati")
 
     try:
-        if hasattr(st, "autorefresh"):
-            st.autorefresh(interval=10000, key="refresh_gruppi")
-    except Exception:
-        pass
-
-    try:
+        # Recupera tutti i gruppi della sessione
         res = supabase.table("gruppi").select("*").eq("sessione_id", session_id).execute()
-        if res.data:
-            for g in res.data:
-                membri = ", ".join(g.get("membri", []))
-                st.write(f"• **{g['nome_gruppo']}** ({g.get('tema','')}) → {membri}")
-            st.caption("Aggiornamento automatico ogni 10 s.")
-        else:
-            st.info("Nessun gruppo ancora creato.")
+        gruppi_data = res.data if res.data else []
     except Exception as e:
         st.error(f"Errore nel caricamento gruppi: {e}")
+        gruppi_data = []
+
+    if gruppi_data:
+        # Mostra elenco gruppi
+        for g in gruppi_data:
+            membri = g.get("membri", [])
+            # Recupera i nomi dai profili
+            try:
+                res_prof = supabase.table("profiles").select("nome,hobby").in_("id", membri).execute()
+                profili_gruppo = res_prof.data
+            except Exception:
+                profili_gruppo = []
+
+            nomi = [p.get("nome","") for p in profili_gruppo if p.get("nome")]
+            st.write(f"• **{g['nome_gruppo']}** ({g.get('tema','')}) → {', '.join(nomi)}")
+
+        st.caption("Aggiornamento automatico ogni 10 s.")
+
+        # Dropdown per selezionare un gruppo e vedere hobby collettivi
+        gruppi_opts = [g["nome_gruppo"] for g in gruppi_data]
+        selected_nome = st.selectbox("🔍 Seleziona un gruppo per visualizzare hobby", options=gruppi_opts, key="grp_select")
+
+        # Trova il gruppo selezionato
+        sel_grp = next((g for g in gruppi_data if g["nome_gruppo"] == selected_nome), None)
+        if sel_grp:
+            membri_sel = sel_grp.get("membri", [])
+            try:
+                res_prof_sel = supabase.table("profiles").select("nome,hobby").in_("id", membri_sel).execute()
+                profili_sel = res_prof_sel.data
+            except Exception:
+                profili_sel = []
+
+            # Aggrega gli hobby
+            hobby_totali = []
+            for p in profili_sel:
+                raw = p.get("hobby")
+                if isinstance(raw, list):
+                    hobby_totali.extend(raw)
+                elif isinstance(raw, str) and raw.strip():
+                    try:
+                        import json
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, list):
+                            hobby_totali.extend(parsed)
+                        else:
+                            hobby_totali.append(raw)
+                    except Exception:
+                        hobby_totali.append(raw)
+
+            hobby_unici = sorted(set(hobby_totali))
+            if hobby_unici:
+                st.write(f"Hobby del gruppo **{selected_nome}**: {', '.join(hobby_unici)}")
+            else:
+                st.info("Nessun hobby registrato per questo gruppo.")
+    else:
+        st.info("Nessun gruppo ancora creato.")
