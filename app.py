@@ -509,39 +509,48 @@ with tab3:
         "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
     }
 
+    # Funzione creazione gruppi (sovrascrive quelli esistenti)
     def crea_gruppi_da_sessione(session_id, size=4):
         try:
+            # 1️⃣ Elimina eventuali gruppi già creati per la stessa sessione
+            supabase.table("gruppi").delete().eq("session_id", session_id).execute()
+
+            # 2️⃣ Recupera i partecipanti iscritti alla sessione
             res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
-            ids = [p["user_id"] for p in res_part.data]
+            ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
             if not ids:
                 st.warning("Nessun partecipante iscritto.")
                 return
 
+            # 3️⃣ Recupera i profili completi e mescola
             res_prof = supabase.table("profiles").select("*").in_("id", ids).execute()
             profili = res_prof.data
             random.shuffle(profili)
 
+            # 4️⃣ Divide in gruppi da N membri
             gruppi = [profili[i:i + size] for i in range(0, len(profili), size)]
             tema = sessione.get("tema", "Generico")
+
+            # 5️⃣ Crea nomi casuali in base al tema
             nomi_tema = temi_gruppi.get(tema, [f"Gruppo{i+1}" for i in range(len(gruppi))])
             random.shuffle(nomi_tema)
 
+            # 6️⃣ Inserisce i nuovi gruppi nel database
             for i, g in enumerate(gruppi):
                 membri = [p["id"] for p in g]
                 nome_gruppo = nomi_tema[i % len(nomi_tema)]
-
                 supabase.table("gruppi").insert({
-                    "sessione_id": session_id,
+                    "session_id": session_id,
                     "nome_gruppo": nome_gruppo,
                     "membri": membri,
                     "tema": tema,
-                    "materia": sessione.get("materia", ""),
                     "data_creazione": datetime.now().isoformat(),
                 }).execute()
 
-            st.success(f"✅ Creati {len(gruppi)} gruppi a tema *{tema}*.")
+            st.success(f"✅ Creati {len(gruppi)} gruppi a tema *{tema}*. Gruppi precedenti eliminati.")
         except Exception as e:
             st.error(f"Errore nella creazione gruppi: {e}")
+
 
     if st.button("🤝 Crea gruppi ora"):
         crea_gruppi_da_sessione(session_id)
