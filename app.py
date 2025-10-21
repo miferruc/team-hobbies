@@ -648,62 +648,99 @@ with tab3:
         "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
     }
 
-    # =====================================================
-    # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI
+       # =====================================================
+    # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI (con matching intelligente)
     # =====================================================
 
     def crea_gruppi_da_sessione(session_id, size=4):
         try:
-            # Elimina gruppi esistenti per la stessa sessione
+            # 1️⃣ Elimina eventuali gruppi già presenti per la stessa sessione
             supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
 
-            # Recupera i partecipanti
+            # 2️⃣ Recupera i partecipanti della sessione
             res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
             ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
             if not ids:
                 st.warning("Nessun partecipante iscritto.")
                 return
 
-            res_prof = supabase.table("profiles").select("*").in_("id", ids).execute()
+            # 3️⃣ Recupera i profili completi con hobby e approccio
+            res_prof = supabase.table("profiles").select("id,nome,hobby,approccio").in_("id", ids).execute()
             profili = res_prof.data
-            random.shuffle(profili)
+            if not profili:
+                st.warning("Nessun profilo trovato per i partecipanti.")
+                return
 
+            # --- Funzione di calcolo similarità (hobby + approccio) ---
+            def similarita(p1, p2):
+                hobby1, hobby2 = p1.get("hobby", []), p2.get("hobby", [])
+                if isinstance(hobby1, str):
+                    try:
+                        import json
+                        hobby1 = json.loads(hobby1)
+                    except Exception:
+                        hobby1 = [hobby1]
+                if isinstance(hobby2, str):
+                    try:
+                        import json
+                        hobby2 = json.loads(hobby2)
+                    except Exception:
+                        hobby2 = [hobby2]
+
+                if not isinstance(hobby1, list): hobby1 = [hobby1]
+                if not isinstance(hobby2, list): hobby2 = [hobby2]
+
+                intersezione = len(set(hobby1) & set(hobby2))
+                totale = len(set(hobby1) | set(hobby2))
+                sim_hobby = intersezione / totale if totale > 0 else 0
+                sim_approccio = 1 if p1.get("approccio") == p2.get("approccio") else 0
+                return 0.7 * sim_hobby + 0.3 * sim_approccio  # pesi: 70% hobby, 30% approccio
+
+            # --- Ordina i profili per affinità media ---
+            from itertools import combinations
+            score_medio = {}
+            for p in profili:
+                altre = [similarita(p, q) for q in profili if q["id"] != p["id"]]
+                score_medio[p["id"]] = sum(altre) / len(altre) if altre else 0
+            profili = sorted(profili, key=lambda x: score_medio[x["id"]], reverse=True)
+
+            # --- Divide in gruppi da N membri in ordine di similarità ---
             gruppi = [profili[i:i + size] for i in range(0, len(profili), size)]
             tema = sessione.get("tema", "Generico")
             nomi_tema = temi_gruppi.get(tema, [f"Gruppo{i+1}" for i in range(len(gruppi))])
-            random.shuffle(nomi_tema)
 
             for i, g in enumerate(gruppi):
                 membri = [p["id"] for p in g]
                 nome_gruppo = nomi_tema[i % len(nomi_tema)]
                 supabase.table("gruppi").insert({
-                    "sessione_id": session_id,  # ✅ colonna corretta
+                    "sessione_id": session_id,
                     "nome_gruppo": nome_gruppo,
                     "membri": membri,
                     "tema": tema,
                     "data_creazione": datetime.now().isoformat(),
                 }).execute()
 
-            st.success(f"✅ Creati {len(gruppi)} gruppi a tema *{tema}*. Gruppi precedenti eliminati.")
+            st.success(f"✅ Creati {len(gruppi)} gruppi ottimizzati per affinità (hobby + approccio).")
         except Exception as e:
             st.error(f"Errore nella creazione gruppi: {e}")
 
     def cancella_gruppi_da_sessione(session_id):
+        """Elimina tutti i gruppi di una specifica sessione"""
         try:
-            supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()  # ✅ correzione
+            supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
             st.warning("🗑️ Tutti i gruppi di questa sessione sono stati eliminati.")
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Errore durante l'eliminazione dei gruppi: {e}")
 
+    # --- Pulsanti azione ---
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🤝 Crea gruppi ora"):
+        if st.button("🤝 Crea gruppi ora (Matching AI)"):
             crea_gruppi_da_sessione(session_id)
     with col2:
         if st.button("🗑️ Cancella gruppi"):
             cancella_gruppi_da_sessione(session_id)
-
 
      # =====================================================
     # 📋 GRUPPI ESISTENTI (vista evoluta + hobby)
