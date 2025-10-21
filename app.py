@@ -32,16 +32,17 @@ def require_login():
         st.stop()
 
 # =====================================================
-# 🔐 LOGIN / LOGOUT BASE
+# 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE
 # =====================================================
-
 with st.sidebar:
     st.subheader("🔐 Accesso")
 
     if st.session_state.auth_user is None:
+        # Campi di input
         email = st.text_input("Email")
         pwd = st.text_input("Password", type="password")
 
+        # --- LOGIN ---
         if st.button("Accedi"):
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
@@ -51,8 +52,21 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Errore login: {e}")
 
+        # --- REGISTRAZIONE ---
         st.markdown("---")
-        st.info("Inserisci le tue credenziali Supabase per accedere.")
+        st.caption("Non hai ancora un account?")
+        if st.button("🆕 Registrati"):
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": pwd})
+                if res.user:
+                    st.success("✅ Registrazione completata! Ora puoi accedere.")
+                else:
+                    st.warning("Impossibile creare l'account. Riprova.")
+            except Exception as e:
+                st.error(f"Errore registrazione: {e}")
+
+        st.markdown("---")
+        st.info("Inserisci le tue credenziali Supabase per accedere o registrarti.")
     else:
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
         if st.button("Esci"):
