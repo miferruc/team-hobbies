@@ -226,13 +226,23 @@ with tab1:
 
     st.title("👤 Profilo studente")
 
-    st.markdown(f"<div style='color:green;font-weight:bold'>Connesso come {user['email']}</div>", unsafe_allow_html=True)
-
-
-    # --- Richiede login ---
+    # --- Verifica login e mostra utente ---
     require_login()
-    user = st.session_state.auth_user
-    user_id = user["id"]
+    user_obj = st.session_state.auth_user
+
+    user_email = getattr(user_obj, "email", None)
+    if not user_email and isinstance(user_obj, dict):
+        user_email = user_obj.get("email")
+
+    if user_email:
+        st.markdown(
+            f"<div style='color:green;font-weight:bold'>Connesso come {user_email}</div>",
+            unsafe_allow_html=True
+        )
+    else:
+        st.warning("Utente connesso ma email non disponibile.")
+
+    user_id = getattr(user_obj, "id", None) or user_obj.get("id")
 
     # =====================================================
     # 📥 FUNZIONI DI CARICAMENTO E SALVATAGGIO
@@ -254,7 +264,7 @@ with tab1:
             existing = load_profile(uid)
             record = {
                 "id": uid,
-                "email": user["email"],
+                "email": user_email,
                 "nome": nome,
                 "corso": corso,
                 "materie_fatte": materie_fatte,
@@ -272,6 +282,7 @@ with tab1:
             st.success("✅ Profilo salvato correttamente")
         except Exception as e:
             st.error(f"Errore nel salvataggio: {e}")
+
 
     # =====================================================
     # 🧩 FORM PROFILO
