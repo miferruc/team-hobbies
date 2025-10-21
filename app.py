@@ -503,10 +503,11 @@ with tab3:
     user_id = user["id"]
 
     # --- Recupera query string ---
-    qp = st.query_params if hasattr(st, "query_params") else {}
-    session_id = qp.get("session_id")
-    if isinstance(session_id, list):
-        session_id = session_id[0]
+    session_id = None
+    if "session_id" in st.query_params:
+        value = st.query_params["session_id"]
+        session_id = value[0] if isinstance(value, list) else value
+
 
     if not session_id:
         st.info("Scansiona un QR code o apri un link di sessione per unirti.")
