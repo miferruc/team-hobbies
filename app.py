@@ -509,33 +509,32 @@ with tab3:
         "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
     }
 
-    # Funzione creazione gruppi (sovrascrive quelli esistenti)
+        # =====================================================
+    # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI
+    # =====================================================
+
+    # Funzione per creare nuovi gruppi (sovrascrive quelli vecchi)
     def crea_gruppi_da_sessione(session_id, size=4):
         try:
-            # 1️⃣ Elimina eventuali gruppi già creati per la stessa sessione
+            # Elimina gruppi esistenti prima di crearne di nuovi
             supabase.table("gruppi").delete().eq("session_id", session_id).execute()
 
-            # 2️⃣ Recupera i partecipanti iscritti alla sessione
+            # Recupera i partecipanti
             res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
             ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
             if not ids:
                 st.warning("Nessun partecipante iscritto.")
                 return
 
-            # 3️⃣ Recupera i profili completi e mescola
             res_prof = supabase.table("profiles").select("*").in_("id", ids).execute()
             profili = res_prof.data
             random.shuffle(profili)
 
-            # 4️⃣ Divide in gruppi da N membri
             gruppi = [profili[i:i + size] for i in range(0, len(profili), size)]
             tema = sessione.get("tema", "Generico")
-
-            # 5️⃣ Crea nomi casuali in base al tema
             nomi_tema = temi_gruppi.get(tema, [f"Gruppo{i+1}" for i in range(len(gruppi))])
             random.shuffle(nomi_tema)
 
-            # 6️⃣ Inserisce i nuovi gruppi nel database
             for i, g in enumerate(gruppi):
                 membri = [p["id"] for p in g]
                 nome_gruppo = nomi_tema[i % len(nomi_tema)]
@@ -551,9 +550,23 @@ with tab3:
         except Exception as e:
             st.error(f"Errore nella creazione gruppi: {e}")
 
+    # Funzione per cancellare tutti i gruppi della sessione
+    def cancella_gruppi_da_sessione(session_id):
+        try:
+            res = supabase.table("gruppi").delete().eq("session_id", session_id).execute()
+            st.warning("🗑️ Tutti i gruppi di questa sessione sono stati eliminati.")
+        except Exception as e:
+            st.error(f"Errore durante l'eliminazione dei gruppi: {e}")
 
-    if st.button("🤝 Crea gruppi ora"):
-        crea_gruppi_da_sessione(session_id)
+    # --- Pulsanti azione ---
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🤝 Crea gruppi ora"):
+            crea_gruppi_da_sessione(session_id)
+    with col2:
+        if st.button("🗑️ Cancella gruppi"):
+            cancella_gruppi_da_sessione(session_id)
+
 
     # =====================================================
     # 📋 GRUPPI ESISTENTI (con selezione e lista hobby)
