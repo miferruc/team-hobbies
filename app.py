@@ -59,10 +59,12 @@ def restore_session():
         except Exception:
             pass
 
-    # 3️⃣ Se loggato, salva token nel cookie
+    # 3️⃣ Se loggato, salva token nel cookie (solo se non esiste già)
     if st.session_state.get("sb_access_token"):
-        cookies["sb_access_token"] = st.session_state["sb_access_token"]
-        cookies.save()
+        if cookies.get("sb_access_token") != st.session_state["sb_access_token"]:
+            cookies["sb_access_token"] = st.session_state["sb_access_token"]
+            cookies.save()
+
 
 # Esegui subito al caricamento
 restore_session()
@@ -118,7 +120,9 @@ with st.sidebar:
                     cookies.save()
 
                     st.success(f"Accesso riuscito come {res.user.email}")
-                    st.rerun()
+                    st.experimental_set_query_params(_="login_done")
+                    st.toast("✅ Accesso effettuato", icon="🔓")
+
                 except Exception as e:
                     st.error(f"Errore login: {e}")
 
@@ -162,7 +166,9 @@ with st.sidebar:
             cookies.delete("sb_access_token")  # ← spostato fuori
             cookies.save()
             st.success("Logout effettuato ✅")
-            st.rerun()
+            st.experimental_set_query_params(_="logout_done")
+            st.toast("👋 Logout completato", icon="🔒")
+
 
 
 
@@ -457,29 +463,38 @@ with tab3:
     except Exception as e:
         st.error(f"Errore durante l’unione alla sessione: {e}")
 
-    # =====================================================
-    # 👥 LISTA PARTECIPANTI (fix ID mapping)
+     # =====================================================
+    # 👥 LISTA PARTECIPANTI (stabile e senza refresh inutili)
     # =====================================================
     st.markdown("### 👥 Studenti collegati")
 
-    try:
-        if hasattr(st, "autorefresh"):
-            st.autorefresh(interval=5000, key="refresh_partecipanti")
-    except Exception:
-        pass
+    # Attiva l'autorefresh solo in questa tab
+    if "disable_autorefresh" not in st.session_state:
+        st.session_state["disable_autorefresh"] = True
 
     try:
+        if st.session_state.get("disable_autorefresh", False) and hasattr(st, "autorefresh"):
+            st.autorefresh(interval=5000, key="refresh_partecipanti")
+    except Exception:
+        pass  # compatibilità Streamlit versioni vecchie
+
+    try:
+        # Recupera tutti i partecipanti della sessione
         res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
         ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
+
         if ids:
+            # Recupera i nomi dai profili corrispondenti
             res_prof = supabase.table("profiles").select("id,nome").in_("id", ids).execute()
             nomi = [p["nome"] for p in res_prof.data if p.get("nome")]
-            st.write(", ".join(sorted(nomi)))
-            st.caption(f"Aggiornamento automatico ogni 5 s — {len(nomi)} studenti collegati.")
+            nomi_ordinati = sorted(set(nomi))  # rimuove eventuali duplicati
+            st.write(", ".join(nomi_ordinati))
+            st.caption(f"Aggiornamento automatico ogni 5 s — {len(nomi_ordinati)} studenti collegati.")
         else:
             st.info("Ancora nessun partecipante.")
     except Exception as e:
         st.error(f"Errore nel caricamento partecipanti: {e}")
+
 
     # =====================================================
     # 🔀 CREAZIONE GRUPPI AUTOMATICI
