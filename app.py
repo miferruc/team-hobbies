@@ -67,29 +67,26 @@ with st.sidebar:
 # =====================================================
 # 🧩 CONTENUTO PRINCIPALE
 # =====================================================
-
-st.title("📘 App Base con Supabase")
-if st.session_state.auth_user:
-    st.write("✅ Connessione attiva a Supabase.")
-    st.write("Utente corrente:", st.session_state.auth_user)
-else:
-    st.info("Effettua l'accesso per continuare.")
-
 # =====================================================
-# 🎯 CHECKPOINT 1 — PROFILO STUDENTE
+# 🎯 CHECKPOINT 1 — PROFILO STUDENTE (versione corretta)
 # =====================================================
 
 import json
+from datetime import datetime
 
 st.title("👤 Profilo studente")
 
-# richiede login
+# --- Richiede login ---
 require_login()
 user = st.session_state.auth_user
 user_id = user["id"]
 
-# --- Carica profilo se esiste ---
+# =====================================================
+# 📥 FUNZIONI DI CARICAMENTO E SALVATAGGIO
+# =====================================================
+
 def load_profile(uid):
+    """Recupera il profilo utente da Supabase"""
     try:
         res = supabase.table("profiles").select("*").eq("id", uid).execute()
         return res.data[0] if res.data else None
@@ -97,8 +94,9 @@ def load_profile(uid):
         st.error(f"Errore nel caricamento profilo: {e}")
         return None
 
-# --- Salva profilo ---
+
 def save_profile(uid, nome, corso, hobby, approccio):
+    """Salva o aggiorna il profilo utente"""
     try:
         existing = load_profile(uid)
         record = {
@@ -118,30 +116,57 @@ def save_profile(uid, nome, corso, hobby, approccio):
     except Exception as e:
         st.error(f"Errore nel salvataggio: {e}")
 
-# --- Form profilo ---
+
+# =====================================================
+# 🧩 FORM PROFILO
+# =====================================================
+
 profile = load_profile(user_id)
 
 nome = st.text_input("Nome completo", value=profile.get("nome") if profile else "")
 corso = st.text_input("Corso di studi", value=profile.get("corso") if profile else "")
+
+# --- Sanitizzazione del valore hobby ---
+default_hobby = []
+if profile and profile.get("hobby"):
+    val = profile.get("hobby")
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                default_hobby = parsed
+        except Exception:
+            default_hobby = [val]
+    elif isinstance(val, list):
+        default_hobby = val
+
 hobby = st.multiselect(
     "Hobby principali",
     ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Arte", "Volontariato"],
-    default=profile.get("hobby") if profile else [],
+    default=default_hobby,
 )
+
 approccio = st.selectbox(
     "Approccio allo studio",
     ["Collaborativo", "Individuale", "Analitico", "Pratico"],
-    index=["Collaborativo", "Individuale", "Analitico", "Pratico"].index(profile.get("approccio"))
-    if profile and profile.get("approccio") in ["Collaborativo", "Individuale", "Analitico", "Pratico"]
-    else 0,
+    index=(
+        ["Collaborativo", "Individuale", "Analitico", "Pratico"].index(profile.get("approccio"))
+        if profile and profile.get("approccio") in ["Collaborativo", "Individuale", "Analitico", "Pratico"]
+        else 0
+    ),
 )
 
+# --- Pulsante Salva ---
 if st.button("💾 Salva profilo"):
     save_profile(user_id, nome, corso, hobby, approccio)
 
-# --- Mostra profilo salvato ---
+# =====================================================
+# 📊 RIEPILOGO PROFILO SALVATO
+# =====================================================
+
 st.markdown("---")
 st.subheader("📋 Riepilogo profilo")
+
 profile = load_profile(user_id)
 if profile:
     st.json(profile)
