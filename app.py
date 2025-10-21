@@ -74,3 +74,76 @@ if st.session_state.auth_user:
     st.write("Utente corrente:", st.session_state.auth_user)
 else:
     st.info("Effettua l'accesso per continuare.")
+
+# =====================================================
+# 🎯 CHECKPOINT 1 — PROFILO STUDENTE
+# =====================================================
+
+import json
+
+st.title("👤 Profilo studente")
+
+# richiede login
+require_login()
+user = st.session_state.auth_user
+user_id = user["id"]
+
+# --- Carica profilo se esiste ---
+def load_profile(uid):
+    try:
+        res = supabase.table("profiles").select("*").eq("id", uid).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        st.error(f"Errore nel caricamento profilo: {e}")
+        return None
+
+# --- Salva profilo ---
+def save_profile(uid, nome, corso, hobby, approccio):
+    try:
+        existing = load_profile(uid)
+        record = {
+            "id": uid,
+            "email": user["email"],
+            "nome": nome,
+            "corso": corso,
+            "hobby": hobby,
+            "approccio": approccio,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if existing:
+            supabase.table("profiles").update(record).eq("id", uid).execute()
+        else:
+            supabase.table("profiles").insert(record).execute()
+        st.success("✅ Profilo salvato correttamente")
+    except Exception as e:
+        st.error(f"Errore nel salvataggio: {e}")
+
+# --- Form profilo ---
+profile = load_profile(user_id)
+
+nome = st.text_input("Nome completo", value=profile.get("nome") if profile else "")
+corso = st.text_input("Corso di studi", value=profile.get("corso") if profile else "")
+hobby = st.multiselect(
+    "Hobby principali",
+    ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Arte", "Volontariato"],
+    default=profile.get("hobby") if profile else [],
+)
+approccio = st.selectbox(
+    "Approccio allo studio",
+    ["Collaborativo", "Individuale", "Analitico", "Pratico"],
+    index=["Collaborativo", "Individuale", "Analitico", "Pratico"].index(profile.get("approccio"))
+    if profile and profile.get("approccio") in ["Collaborativo", "Individuale", "Analitico", "Pratico"]
+    else 0,
+)
+
+if st.button("💾 Salva profilo"):
+    save_profile(user_id, nome, corso, hobby, approccio)
+
+# --- Mostra profilo salvato ---
+st.markdown("---")
+st.subheader("📋 Riepilogo profilo")
+profile = load_profile(user_id)
+if profile:
+    st.json(profile)
+else:
+    st.info("Nessun profilo ancora salvato.")
