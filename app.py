@@ -368,6 +368,7 @@ if pagina == "profilo":
             st.rerun()
 
 elif pagina == "dashboard":
+    
     # =====================================================
     # 🔗 FASE 5A – JOIN VIA QR (versione aggiornata)
     # =====================================================
@@ -415,6 +416,17 @@ elif pagina == "dashboard":
     # --- Titolo Dashboard ---
     st.title("🎓 Dashboard Studente")
 
+    st_autorefresh = st.experimental_memo.clear if False else None  # placeholder per compat
+    from streamlit import runtime
+    try:
+        st.experimental_rerun  # check API
+        st_autorefresh = st.autorefresh if hasattr(st, "autorefresh") else None
+    except:
+        st_autorefresh = None
+
+    if st_autorefresh:
+        st_autorefresh(interval=5000, key="refresh_presenti")
+
 
 
     # --- 🔄 JOIN SESSIONE TRAMITE QR ---
@@ -426,24 +438,37 @@ elif pagina == "dashboard":
             else:
                 sessione = res_sess.data[0]
                 st.info(f"🎓 Sessione trovata: **{sessione['nome']}** – tema *{sessione['tema']}*")
-
+                
+                # 🔐 Iscrivi l'utente alla sessione se non presente
                 user_id = st.session_state.auth_user["id"]
-
-                # 🔍 Verifica se già iscritto
                 res_check = supabase.table("participants").select("*") \
                     .eq("session_id", session_id).eq("user_id", user_id).execute()
 
                 if res_check.data:
-                    st.warning("⚠️ Sei già iscritto a questa sessione.")
+                    st.info("Sei già iscritto a questa sessione ✅")
                 else:
-                    # ✅ Aggiunge utente alla sessione
                     supabase.table("participants").insert({
                         "user_id": user_id,
                         "session_id": session_id
                     }).execute()
                     st.success("✅ Ti sei unito con successo alla sessione!")
-        except Exception as e:
-            st.error(f"Errore durante il join della sessione: {e}")
+                    st.rerun()
+
+                # --- 👥 Lista studenti attualmente nella sessione ---
+                st.markdown("### 👥 Studenti collegati in questa sessione")
+
+                res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+                ids = [p["user_id"] for p in res_part.data]
+                if ids:
+                    res_prof = supabase.table("profiles").select("nome").in_("id", ids).execute()
+                    nomi = [p["nome"] for p in res_prof.data if p.get("nome")]
+                    st.write(", ".join(nomi))
+                else:
+                    st.info("Ancora nessuno collegato.")
+
+                if st.button("🤝 Crea gruppi ora"):
+                    crea_gruppi_da_sessione(session_id)
+
 
     # =====================================================
     # 📊 FASE 5B–5C: DASHBOARD STUDENTE + GRUPPI
@@ -724,3 +749,54 @@ def pulisci_gruppi_finti(user_id):
         st.success("🧹 Gruppi di test eliminati con successo!")
     except Exception as e:
         st.error(f"Errore durante la pulizia dei gruppi: {e}")
+
+
+
+# =====================================================
+# 🔀 CREAZIONE GRUPPI AUTOMATICA DALLA SESSIONE
+# =====================================================
+def crea_gruppi_da_sessione(session_id: str, size: int = 4):
+    """Crea gruppi automatici per la sessione in base a materie e approccio."""
+    # Evita duplicati: se esistono già gruppi per la sessione, non ricreare
+    esistenti = supabase.table("gruppi").select("id").eq("session_id", session_id).execute()
+    if esistenti.data:
+        st.warning("Gruppi già creati per questa sessione.")
+        return
+
+    try:
+        # 1️⃣ Recupera partecipanti della sessione
+        res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
+        user_ids = [p["user_id"] for p in res_part.data]
+        if not user_ids:
+            st.warning("Nessun partecipante trovato.")
+            return
+
+        # 2️⃣ Recupera profili dei partecipanti
+        res_prof = supabase.table("profiles").select("*").in_("id", user_ids).execute()
+        profili = res_prof.data
+
+        # 3️⃣ Ordina per prima materia_da_fare e approccio per affinità
+        profili.sort(key=lambda x: (
+            str(x.get("materie_dafare", [])),
+            x.get("approccio", "")
+        ))
+
+        # 4️⃣ Crea gruppi di 'size' studenti
+        gruppi = [profili[i:i+size] for i in range(0, len(profili), size)]
+
+        # 5️⃣ Inserisci su Supabase
+        for g in gruppi:
+            membri = [u["id"] for u in g]
+            materia = g[0]["materie_dafare"][0] if g[0].get("materie_dafare") else "Generale"
+            nome = f"{materia[:3].upper()}_{random.randint(100,999)}"
+            supabase.table("gruppi").insert({
+                "nome_gruppo": nome,
+                "session_id": session_id,
+                "membri": membri,
+                "materia": materia,
+                "data_creazione": datetime.now().isoformat()
+            }).execute()
+
+        st.success(f"✅ Creati {len(gruppi)} gruppi con {len(profili)} studenti totali.")
+    except Exception as e:
+        st.error(f"Errore nella creazione dei gruppi: {e}")
