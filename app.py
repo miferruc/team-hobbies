@@ -6,6 +6,22 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime
 
+
+# =====================================================
+# 🍪 COOKIE MANAGER — persistenza login
+# =====================================================
+from streamlit_cookies_manager import EncryptedCookieManager
+
+cookies = EncryptedCookieManager(
+    prefix="team_hobbies_",
+    password="chiave_super_sicura"  # cambia con un valore lungo e unico
+)
+
+if not cookies.ready():
+    st.stop()
+st.write("")  # evita errore di rendering durante caricamento cookie
+
+
 # =====================================================
 # 🔧 CONFIGURAZIONE BASE
 # =====================================================
@@ -16,6 +32,41 @@ st.set_page_config(page_title="App Base", page_icon="🎓", layout="centered")
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+# =====================================================
+# 🔁 FUNZIONE DI RIPRISTINO SESSIONE (cookie + token)
+# =====================================================
+def restore_session():
+    """Mantiene l'utente loggato anche dopo refresh o chiusura browser"""
+    if not cookies.ready():
+        return  # evita errori se il cookie manager non è ancora pronto
+
+    # 1️⃣ Recupera token da cookie
+    if "sb_access_token" not in st.session_state:
+        token_cookie = cookies.get("sb_access_token")
+        if token_cookie:
+            st.session_state["sb_access_token"] = token_cookie
+
+    # 2️⃣ Recupera utente da token
+    if "auth_user" not in st.session_state:
+        st.session_state.auth_user = None
+
+    if st.session_state.get("sb_access_token") and st.session_state.auth_user is None:
+        try:
+            res = supabase.auth.get_user(st.session_state["sb_access_token"])
+            if res and res.user:
+                st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+        except Exception:
+            pass
+
+    # 3️⃣ Se loggato, salva token nel cookie
+    if st.session_state.get("sb_access_token"):
+        cookies["sb_access_token"] = st.session_state["sb_access_token"]
+        cookies.save()
+
+# Esegui subito al caricamento
+restore_session()
+
 
 # =====================================================
 # 🧠 SESSIONE STREAMLIT
@@ -31,16 +82,27 @@ def require_login():
         st.warning("🔒 Effettua prima il login per continuare.")
         st.stop()
 # =====================================================
-# 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE (esteso)
+# 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE (persistente)
 # =====================================================
 with st.sidebar:
     st.subheader("🔐 Accesso o Registrazione")
 
-    if st.session_state.get("auth_user") is None:
-        # --- Tab Login e Registrazione ---
+    # --- Se c'è un token salvato, tenta il ripristino ---
+    if "auth_user" not in st.session_state:
+        st.session_state.auth_user = None
+    if "sb_access_token" in st.session_state and st.session_state.auth_user is None:
+        try:
+            res = supabase.auth.get_user(st.session_state["sb_access_token"])
+            if res and res.user:
+                st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+        except Exception:
+            pass
+
+    # --- Tabs Login e Registrazione ---
+    if st.session_state.auth_user is None:
         tab_login, tab_signup = st.tabs(["🔑 Accedi", "🆕 Registrati"])
 
-        # -------------------- LOGIN --------------------
+        # ----- LOGIN -----
         with tab_login:
             st.markdown("**Entra con le tue credenziali universitarie**")
             email = st.text_input("Email universitaria", key="login_email")
@@ -50,12 +112,17 @@ with st.sidebar:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
                     st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                    token = res.session.access_token
+                    st.session_state["sb_access_token"] = token
+                    cookies["sb_access_token"] = token
+                    cookies.save()
+
                     st.success(f"Accesso riuscito come {res.user.email}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Errore login: {e}")
 
-        # -------------------- REGISTRAZIONE --------------------
+        # ----- REGISTRAZIONE -----
         with tab_signup:
             st.markdown("**Crea un nuovo account universitario**")
             email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
@@ -82,16 +149,21 @@ with st.sidebar:
                         st.error(f"Errore registrazione: {e}")
 
     else:
-        # -------------------- LOGOUT --------------------
+        # ----- LOGOUT -----
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
         if st.button("Esci"):
             try:
                 supabase.auth.sign_out()
             except Exception:
                 pass
-            st.session_state.auth_user = None
+            for key in ["auth_user", "sb_access_token"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            cookies.delete("sb_access_token")  # ← spostato fuori
+            cookies.save()
             st.success("Logout effettuato ✅")
             st.rerun()
+
 
 
 # =====================================================
