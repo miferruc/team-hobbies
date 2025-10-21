@@ -93,6 +93,7 @@ with st.sidebar:
             st.success("Logout effettuato ✅")
             st.rerun()
 
+
 # =====================================================
 # 🧩 CONTENUTO PRINCIPALE
 # =====================================================
@@ -385,7 +386,7 @@ with tab3:
         st.error(f"Errore durante l’unione alla sessione: {e}")
 
     # =====================================================
-    # 👥 LISTA PARTECIPANTI (auto-refresh 5s)
+    # 👥 LISTA PARTECIPANTI (fix ID mapping)
     # =====================================================
     st.markdown("### 👥 Studenti collegati")
 
@@ -397,9 +398,9 @@ with tab3:
 
     try:
         res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
-        ids = [p["user_id"] for p in res_part.data]
+        ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
         if ids:
-            res_prof = supabase.table("profiles").select("nome").in_("id", ids).execute()
+            res_prof = supabase.table("profiles").select("id,nome").in_("id", ids).execute()
             nomi = [p["nome"] for p in res_prof.data if p.get("nome")]
             st.write(", ".join(sorted(nomi)))
             st.caption(f"Aggiornamento automatico ogni 5 s — {len(nomi)} studenti collegati.")
