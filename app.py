@@ -126,69 +126,84 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Errore login: {e}")
 
-# ----- REGISTRAZIONE -----
-with tab_signup:
-    st.markdown("**Crea un nuovo account universitario**")
-    st.info("L’email universitaria è usata solo per creare gruppi di studio. Nessun dato è condiviso con terzi.")
+with st.sidebar:
+    st.subheader("🔐 Accesso o Registrazione")
 
-    email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
-    pwd1 = st.text_input("Password", type="password", key="signup_pwd1")
-    pwd2 = st.text_input("Ripeti Password", type="password", key="signup_pwd2")
+    # --- Se l'utente NON è loggato ---
+    if st.session_state.get("auth_user") is None:
+        tab_login, tab_signup = st.tabs(["🔑 Accedi", "🆕 Registrati"])
 
-    consenso = st.checkbox(
-        "Acconsento al trattamento dei miei dati (email, preferenze, partecipazione alle sessioni) ai sensi del GDPR 2016/679, esclusivamente per la creazione di gruppi di studio.",
-        key="signup_consent"
-    )
+        # ----- LOGIN -----
+        with tab_login:
+            st.markdown("**Entra con le tue credenziali universitarie**")
+            email = st.text_input("Email universitaria", key="login_email")
+            pwd = st.text_input("Password", type="password", key="login_pwd")
 
-    if st.button("Crea account"):
-        if not email_reg or not pwd1 or not pwd2:
-            st.warning("Compila tutti i campi.")
-        elif not email_reg.endswith("@studenti.unibg.it"):
-            st.error("Puoi registrarti solo con email universitaria (@studenti.unibg.it).")
-        elif pwd1 != pwd2:
-            st.error("Le password non coincidono.")
-        elif len(pwd1) < 6:
-            st.warning("La password deve avere almeno 6 caratteri.")
-        elif not consenso:
-            st.error("Devi acconsentire al trattamento dati per procedere.")
-        else:
-            try:
-                res = supabase.auth.sign_up({"email": email_reg, "password": pwd1})
-                if res.user:
-                    # Salva/imposta consenso nel profilo subito
-                    try:
-                        supabase.table("profiles").upsert({
-                            "id": res.user.id,
-                            "email": email_reg,
-                            "role": "student",
-                            "consenso_privacy": True,
-                            "consenso_timestamp": datetime.now().isoformat(),
-                        }, on_conflict="id").execute()
-                    except Exception:
-                        # fallback insert se upsert non disponibile
-                        try:
-                            supabase.table("profiles").insert({
-                                "id": res.user.id,
-                                "email": email_reg,
-                                "role": "student",
-                                "consenso_privacy": True,
-                                "consenso_timestamp": datetime.now().isoformat(),
-                            }).execute()
-                        except Exception:
-                            pass
+            if st.button("Accedi"):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
+                    st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                    st.session_state["sb_access_token"] = res.session.access_token
+                    st.success(f"✅ Accesso riuscito come {res.user.email}")
+                    st.toast("Accesso effettuato 🔓", icon="✅")
+                    st.query_params["status"] = "login_done"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore login: {e}")
 
-                    st.success("✅ Registrazione completata! Controlla la mail se è richiesta verifica, poi accedi.")
+        # ----- REGISTRAZIONE -----
+        with tab_signup:
+            st.markdown("**Crea un nuovo account universitario**")
+            st.info("L’email universitaria è usata solo per creare gruppi di studio. Nessun dato è condiviso con terzi.")
+
+            email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
+            pwd1 = st.text_input("Password", type="password", key="signup_pwd1")
+            pwd2 = st.text_input("Ripeti Password", type="password", key="signup_pwd2")
+
+            consenso = st.checkbox(
+                "Acconsento al trattamento dei miei dati (email, preferenze, partecipazione alle sessioni) ai sensi del GDPR 2016/679, esclusivamente per la creazione di gruppi di studio.",
+                key="signup_consent"
+            )
+
+            if st.button("Crea account"):
+                if not email_reg or not pwd1 or not pwd2:
+                    st.warning("Compila tutti i campi.")
+                elif not email_reg.endswith("@studenti.unibg.it"):
+                    st.error("Puoi registrarti solo con email universitaria (@studenti.unibg.it).")
+                elif pwd1 != pwd2:
+                    st.error("Le password non coincidono.")
+                elif len(pwd1) < 6:
+                    st.warning("La password deve avere almeno 6 caratteri.")
+                elif not consenso:
+                    st.error("Devi acconsentire al trattamento dati per procedere.")
                 else:
-                    st.warning("Errore durante la registrazione. Riprova.")
-            except Exception as e:
-                st.error(f"Errore registrazione: {e}")
+                    try:
+                        res = supabase.auth.sign_up({"email": email_reg, "password": pwd1})
+                        if res.user:
+                            try:
+                                # Inserisce subito il consenso privacy nel profilo
+                                supabase.table("profiles").upsert({
+                                    "id": res.user.id,
+                                    "email": email_reg,
+                                    "role": "student",
+                                    "consenso_privacy": True,
+                                    "consenso_timestamp": datetime.now().isoformat(),
+                                }, on_conflict="id").execute()
+                            except Exception:
+                                pass
 
+                            st.success("✅ Registrazione completata! Controlla la mail se richiesta verifica, poi accedi.")
+                        else:
+                            st.warning("Errore durante la registrazione. Riprova.")
+                    except Exception as e:
+                        st.error(f"Errore registrazione: {e}")
 
+    # --- Se l'utente È loggato ---
     else:
-        # ----- LOGOUT -----
         user_email = getattr(st.session_state.auth_user, "email", None)
         if not user_email and isinstance(st.session_state.auth_user, dict):
             user_email = st.session_state.auth_user.get("email")
+
         if user_email:
             st.success(f"Connesso come {user_email}")
         else:
@@ -199,16 +214,17 @@ with tab_signup:
                 supabase.auth.sign_out()
             except Exception:
                 pass
+
+            # pulizia completa sessione e cookie
             for key in ["auth_user", "sb_access_token"]:
                 if key in st.session_state:
                     del st.session_state[key]
-            cookies.delete("sb_access_token")  # ← spostato fuori
+            cookies.delete("sb_access_token")
             cookies.save()
-            st.success("Logout effettuato ✅")
-            st.experimental_set_query_params(_="logout_done")
+
             st.toast("👋 Logout completato", icon="🔒")
-
-
+            st.query_params["status"] = "logout_done"
+            st.rerun()
 
 
 # =====================================================
