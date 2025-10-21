@@ -86,45 +86,7 @@ def require_login():
 # =====================================================
 # 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE (persistente)
 # =====================================================
-with st.sidebar:
-    st.subheader("🔐 Accesso o Registrazione")
 
-    # --- Se c'è un token salvato, tenta il ripristino ---
-    if "auth_user" not in st.session_state:
-        st.session_state.auth_user = None
-    if "sb_access_token" in st.session_state and st.session_state.auth_user is None:
-        try:
-            res = supabase.auth.get_user(st.session_state["sb_access_token"])
-            if res and res.user:
-                st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-        except Exception:
-            pass
-
-    # --- Tabs Login e Registrazione ---
-    if st.session_state.auth_user is None:
-        tab_login, tab_signup = st.tabs(["🔑 Accedi", "🆕 Registrati"])
-
-        # ----- LOGIN -----
-        with tab_login:
-            st.markdown("**Entra con le tue credenziali universitarie**")
-            email = st.text_input("Email universitaria", key="login_email")
-            pwd = st.text_input("Password", type="password", key="login_pwd")
-
-            if st.button("Accedi"):
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
-                    st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-                    token = res.session.access_token
-                    st.session_state["sb_access_token"] = token
-                    cookies["sb_access_token"] = token
-                    cookies.save()
-
-                    st.success(f"Accesso riuscito come {res.user.email}")
-                    st.experimental_set_query_params(_="login_done")
-                    st.toast("✅ Accesso effettuato", icon="🔓")
-
-                except Exception as e:
-                    st.error(f"Errore login: {e}")
 
 with st.sidebar:
     st.subheader("🔐 Accesso o Registrazione")
@@ -498,18 +460,21 @@ with tab2:
             .order("timestamp", desc=True)
             .execute()
         )
+        data_list = res.data or []
 
-        if res.data:
-            for s in res.data:
-                nome = s["nome"]
+        if data_list:
+            for s in data_list:
+                nome = s.get("nome", "—")
                 attiva = s.get("attiva", True)
                 tema = s.get("tema", "")
                 materia = s.get("materia", "")
-                data = s.get("data", "")
+                data_s = s.get("data", "")
                 link = s.get("link_pubblico", "")
+                status = "🟢 Attiva" if attiva else f"🔴 Chiusa il {str(s.get('chiusa_il',''))[:10]}"
 
-                status = "🟢 Attiva" if attiva else f"🔴 Chiusa il {s.get('chiusa_il','N/D')[:10]}"
-                st.markdown(f"**{nome}** | {tema} | {materia} | 📅 {data} | [{link}]({link}) | {status}")
+                st.markdown(
+                    f"**{nome}** | {tema} | {materia} | 📅 {data_s} | [{link}]({link}) | {status}"
+                )
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -520,7 +485,6 @@ with tab2:
                         }).eq("id", s["id"]).execute()
                         st.success(f"Sessione '{nome}' chiusa.")
                         st.rerun()
-
                 with col2:
                     if not attiva and st.button(f"♻️ Riapri '{nome}'", key=f"riapri_{s['id']}"):
                         supabase.table("sessioni").update({
@@ -529,22 +493,12 @@ with tab2:
                         }).eq("id", s["id"]).execute()
                         st.info(f"Sessione '{nome}' riaperta.")
                         st.rerun()
-
         else:
             st.info("Nessuna sessione creata ancora.")
+
     except Exception as e:
         st.error(f"Errore nel caricamento delle sessioni: {e}")
 
-        if res.data:
-            for s in res.data:
-                st.write(
-                    f"• **{s['nome']}** | Tema: *{s.get('tema','')}* | Materia: *{s.get('materia','')}* "
-                    f"| 📅 {s.get('data','')} | [Apri link]({s.get('link_pubblico','')})"
-                )
-        else:
-            st.info("Nessuna sessione creata ancora.")
-    except Exception as e:
-        st.error(f"Errore nel caricamento delle sessioni: {e}")
 # =====================================================
 # TAB 3 — GRUPPI E PARTECIPANTI (Auto-refresh partecipanti + gruppi)
 # =====================================================
@@ -648,69 +602,70 @@ with tab3:
         "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
     }
 
-       # =====================================================
-    # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI (con matching intelligente)
+    # =====================================================
+    # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI (Matching Intelligente)
     # =====================================================
 
     def crea_gruppi_da_sessione(session_id, size=4):
         try:
-            # 1️⃣ Elimina eventuali gruppi già presenti per la stessa sessione
+            # 🔸 Recupera informazioni della sessione
+            res_sess = supabase.table("sessioni").select("tema").eq("id", session_id).execute()
+            sessione = res_sess.data[0] if res_sess.data else {"tema": "Generico"}
+            tema = sessione.get("tema", "Generico")
+
+            # 🔸 Elimina eventuali gruppi già presenti per la sessione
             supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
 
-            # 2️⃣ Recupera i partecipanti della sessione
+            # 🔸 Recupera i partecipanti iscritti
             res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
-            ids = [p["user_id"] for p in res_part.data if p.get("user_id")]
+            ids = [p["user_id"] for p in (res_part.data or []) if p.get("user_id")]
             if not ids:
                 st.warning("Nessun partecipante iscritto.")
                 return
 
-            # 3️⃣ Recupera i profili completi con hobby e approccio
+            # 🔸 Recupera i profili completi
             res_prof = supabase.table("profiles").select("id,nome,hobby,approccio").in_("id", ids).execute()
-            profili = res_prof.data
+            profili = res_prof.data or []
             if not profili:
                 st.warning("Nessun profilo trovato per i partecipanti.")
                 return
 
-            # --- Funzione di calcolo similarità (hobby + approccio) ---
+            # --- Funzione di similarità (hobby + approccio) ---
             def similarita(p1, p2):
-                hobby1, hobby2 = p1.get("hobby", []), p2.get("hobby", [])
-                if isinstance(hobby1, str):
-                    try:
-                        import json
-                        hobby1 = json.loads(hobby1)
-                    except Exception:
-                        hobby1 = [hobby1]
-                if isinstance(hobby2, str):
-                    try:
-                        import json
-                        hobby2 = json.loads(hobby2)
-                    except Exception:
-                        hobby2 = [hobby2]
+                import json
+                def normalizza_hobby(x):
+                    if isinstance(x, str):
+                        try:
+                            x = json.loads(x)
+                        except Exception:
+                            x = [x]
+                    if not isinstance(x, list):
+                        x = [x]
+                    return set(map(str, x))
 
-                if not isinstance(hobby1, list): hobby1 = [hobby1]
-                if not isinstance(hobby2, list): hobby2 = [hobby2]
-
-                intersezione = len(set(hobby1) & set(hobby2))
-                totale = len(set(hobby1) | set(hobby2))
-                sim_hobby = intersezione / totale if totale > 0 else 0
+                h1, h2 = normalizza_hobby(p1.get("hobby", [])), normalizza_hobby(p2.get("hobby", []))
+                inter = len(h1 & h2)
+                tot = len(h1 | h2)
+                sim_hobby = inter / tot if tot else 0
                 sim_approccio = 1 if p1.get("approccio") == p2.get("approccio") else 0
-                return 0.7 * sim_hobby + 0.3 * sim_approccio  # pesi: 70% hobby, 30% approccio
+                return 0.7 * sim_hobby + 0.3 * sim_approccio  # 70% hobby + 30% approccio
 
-            # --- Ordina i profili per affinità media ---
-            from itertools import combinations
+            # --- Calcola la similarità media di ogni studente ---
             score_medio = {}
             for p in profili:
-                altre = [similarita(p, q) for q in profili if q["id"] != p["id"]]
-                score_medio[p["id"]] = sum(altre) / len(altre) if altre else 0
+                altri = [similarita(p, q) for q in profili if q["id"] != p["id"]]
+                score_medio[p["id"]] = sum(altri) / len(altri) if altri else 0
+
+            # --- Ordina studenti per affinità media ---
             profili = sorted(profili, key=lambda x: score_medio[x["id"]], reverse=True)
 
-            # --- Divide in gruppi da N membri in ordine di similarità ---
+            # --- Divide in gruppi di dimensione "size" ---
             gruppi = [profili[i:i + size] for i in range(0, len(profili), size)]
-            tema = sessione.get("tema", "Generico")
             nomi_tema = temi_gruppi.get(tema, [f"Gruppo{i+1}" for i in range(len(gruppi))])
 
-            for i, g in enumerate(gruppi):
-                membri = [p["id"] for p in g]
+            # --- Inserisce i gruppi nel DB ---
+            for i, gruppo in enumerate(gruppi):
+                membri = [p["id"] for p in gruppo]
                 nome_gruppo = nomi_tema[i % len(nomi_tema)]
                 supabase.table("gruppi").insert({
                     "sessione_id": session_id,
@@ -721,11 +676,15 @@ with tab3:
                 }).execute()
 
             st.success(f"✅ Creati {len(gruppi)} gruppi ottimizzati per affinità (hobby + approccio).")
+
         except Exception as e:
             st.error(f"Errore nella creazione gruppi: {e}")
 
+    # =====================================================
+    # 🗑️ CANCELLAZIONE GRUPPI
+    # =====================================================
     def cancella_gruppi_da_sessione(session_id):
-        """Elimina tutti i gruppi di una specifica sessione"""
+        """Elimina tutti i gruppi della sessione corrente."""
         try:
             supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
             st.warning("🗑️ Tutti i gruppi di questa sessione sono stati eliminati.")
@@ -733,7 +692,9 @@ with tab3:
         except Exception as e:
             st.error(f"Errore durante l'eliminazione dei gruppi: {e}")
 
-    # --- Pulsanti azione ---
+    # =====================================================
+    # 🔘 PULSANTI AZIONE
+    # =====================================================
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🤝 Crea gruppi ora (Matching AI)"):
@@ -751,7 +712,7 @@ with tab3:
     # 🔁 Aggiornamento automatico ogni 10 s
     try:
         if hasattr(st, "autorefresh"):
-            st.autorefresh(interval=10000, key="refresh_gruppi")
+            st.autorefresh(interval=15000, key="refresh_gruppi")
     except Exception:
         pass
 
