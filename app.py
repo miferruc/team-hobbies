@@ -30,44 +30,59 @@ def require_login():
     if st.session_state.auth_user is None:
         st.warning("🔒 Effettua prima il login per continuare.")
         st.stop()
-
 # =====================================================
-# 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE
+# 🔐 LOGIN / REGISTRAZIONE / LOGOUT BASE (esteso)
 # =====================================================
 with st.sidebar:
-    st.subheader("🔐 Accesso")
+    st.subheader("🔐 Accesso o Registrazione")
 
-    if st.session_state.auth_user is None:
-        # Campi di input
-        email = st.text_input("Email")
-        pwd = st.text_input("Password", type="password")
+    if st.session_state.get("auth_user") is None:
+        # --- Tab Login e Registrazione ---
+        tab_login, tab_signup = st.tabs(["🔑 Accedi", "🆕 Registrati"])
 
-        # --- LOGIN ---
-        if st.button("Accedi"):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
-                st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
-                st.success(f"Accesso riuscito come {res.user.email}")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Errore login: {e}")
+        # -------------------- LOGIN --------------------
+        with tab_login:
+            st.markdown("**Entra con le tue credenziali universitarie**")
+            email = st.text_input("Email universitaria", key="login_email")
+            pwd = st.text_input("Password", type="password", key="login_pwd")
 
-        # --- REGISTRAZIONE ---
-        st.markdown("---")
-        st.caption("Non hai ancora un account?")
-        if st.button("🆕 Registrati"):
-            try:
-                res = supabase.auth.sign_up({"email": email, "password": pwd})
-                if res.user:
-                    st.success("✅ Registrazione completata! Ora puoi accedere.")
+            if st.button("Accedi"):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
+                    st.session_state.auth_user = {"id": res.user.id, "email": res.user.email}
+                    st.success(f"Accesso riuscito come {res.user.email}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore login: {e}")
+
+        # -------------------- REGISTRAZIONE --------------------
+        with tab_signup:
+            st.markdown("**Crea un nuovo account universitario**")
+            email_reg = st.text_input("Email universitaria (@studenti.unibg.it)", key="signup_email")
+            pwd1 = st.text_input("Password", type="password", key="signup_pwd1")
+            pwd2 = st.text_input("Ripeti Password", type="password", key="signup_pwd2")
+
+            if st.button("Crea account"):
+                if not email_reg or not pwd1 or not pwd2:
+                    st.warning("Compila tutti i campi.")
+                elif "@studenti." not in email_reg:
+                    st.warning("Usa un'email universitaria valida.")
+                elif pwd1 != pwd2:
+                    st.error("Le password non coincidono.")
+                elif len(pwd1) < 6:
+                    st.warning("La password deve avere almeno 6 caratteri.")
                 else:
-                    st.warning("Impossibile creare l'account. Riprova.")
-            except Exception as e:
-                st.error(f"Errore registrazione: {e}")
+                    try:
+                        res = supabase.auth.sign_up({"email": email_reg, "password": pwd1})
+                        if res.user:
+                            st.success("✅ Registrazione completata! Ora puoi accedere.")
+                        else:
+                            st.warning("Errore durante la registrazione. Riprova.")
+                    except Exception as e:
+                        st.error(f"Errore registrazione: {e}")
 
-        st.markdown("---")
-        st.info("Inserisci le tue credenziali Supabase per accedere o registrarti.")
     else:
+        # -------------------- LOGOUT --------------------
         st.success(f"Connesso come {st.session_state.auth_user['email']}")
         if st.button("Esci"):
             try:
