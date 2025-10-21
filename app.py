@@ -186,7 +186,14 @@ with tab_signup:
 
     else:
         # ----- LOGOUT -----
-        st.success(f"Connesso come {st.session_state.auth_user['email']}")
+        user_email = getattr(st.session_state.auth_user, "email", None)
+        if not user_email and isinstance(st.session_state.auth_user, dict):
+            user_email = st.session_state.auth_user.get("email")
+        if user_email:
+            st.success(f"Connesso come {user_email}")
+        else:
+            st.warning("Utente connesso ma email non rilevata.")
+
         if st.button("Esci"):
             try:
                 supabase.auth.sign_out()
