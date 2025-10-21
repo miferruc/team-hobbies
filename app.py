@@ -913,7 +913,21 @@ def create_ghosts(n=20, session_id=None, add_as_participants=False):
     try:
         batch = [make_fake_profile() for _ in range(n)]
         # insert in profiles
-        supabase.table("profiles").insert(batch).execute()
+        for g in batch:
+    # usa insert with upsert per evitare errore FK
+            supabase.rpc("insert_ghost_profile", {
+                "id": g["id"],
+                "email": g["email"],
+                "nome": g["nome"],
+                "corso": g["corso"],
+                "materie_fatte": json.dumps(g["materie_fatte"]),
+                "materie_dafare": json.dumps(g["materie_dafare"]),
+                "hobby": json.dumps(g["hobby"]),
+                "approccio": g["approccio"],
+                "obiettivi": json.dumps(g["obiettivi"]),
+                "role": "ghost",
+            }).execute()
+
         created = [p["id"] for p in batch]
         # optionally add to participants
         if session_id and add_as_participants:
