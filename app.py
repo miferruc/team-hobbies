@@ -210,7 +210,103 @@ with tab1:
 with tab2:
     st.title("🏫 Creazione sessione")
     st.info("Qui potrai creare una sessione e generare il QR code per la classe.")
-    st.write("⚙️ Da implementare nel Checkpoint 2.")
+    
+    # =====================================================
+# TAB 2 — SESSIONI (Checkpoint 2 - compatibile con DB)
+# =====================================================
+with tab2:
+    import qrcode
+    from io import BytesIO
+    import base64
+    import uuid
+
+    st.title("🏫 Creazione sessione")
+
+    require_login()
+    user = st.session_state.auth_user
+    user_id = user["id"]
+
+    st.markdown("Crea una nuova sessione per la tua lezione o per un assignment di gruppo:")
+
+    # --- FORM DATI SESSIONE ---
+    nome = st.text_input("Nome sessione", placeholder="Esempio: Economia_16_10_2025")
+    materia = st.text_input("Materia", placeholder="Esempio: Economia")
+    data = st.date_input("Data", value=datetime.now().date())
+    tema = st.selectbox(
+        "Tema dei gruppi",
+        ["Anime", "Sport", "Spazio", "Natura", "Tecnologia", "Storia", "Mitologia"],
+        index=0,
+    )
+
+    # --- PULSANTE CREAZIONE ---
+    if st.button("📦 Crea sessione"):
+        if not nome.strip():
+            st.warning("Inserisci un nome valido per la sessione.")
+        else:
+            try:
+                # Genera ID sessione
+                session_id = str(uuid.uuid4())[:8]
+
+                # Base URL app
+                base_url = st.secrets.get("BASE_URL", "https://team-hobbies.streamlit.app")
+                link_pubblico = f"{base_url}?session_id={session_id}"
+
+                # Salva nel DB
+                record = {
+                    "id": session_id,
+                    "nome": nome,
+                    "materia": materia,
+                    "data": str(data),
+                    "tema": tema,
+                    "link_pubblico": link_pubblico,
+                    "creato_da": user_id,
+                    "timestamp": datetime.now().isoformat(),
+                }
+                supabase.table("sessioni").insert(record).execute()
+
+                st.success(f"✅ Sessione creata con successo: {nome}")
+
+                # --- QR code ---
+                qr = qrcode.QRCode(box_size=6, border=2)
+                qr.add_data(link_pubblico)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                qr_b64 = base64.b64encode(buf.getvalue()).decode()
+                st.image(f"data:image/png;base64,{qr_b64}", caption="Scansiona per unirti alla sessione")
+
+                # --- Mostra link ---
+                st.markdown(f"**Link pubblico:** [{link_pubblico}]({link_pubblico})")
+
+            except Exception as e:
+                st.error(f"Errore durante la creazione della sessione: {e}")
+
+    # =====================================================
+    # 📋 SESSIONI CREATE DALL'UTENTE
+    # =====================================================
+    st.markdown("---")
+    st.subheader("📚 Le tue sessioni create")
+
+    try:
+        res = (
+            supabase.table("sessioni")
+            .select("*")
+            .eq("creato_da", user_id)
+            .order("timestamp", desc=True)
+            .execute()
+        )
+        if res.data:
+            for s in res.data:
+                st.write(
+                    f"• **{s['nome']}** | Tema: *{s.get('tema','')}* | Materia: *{s.get('materia','')}* "
+                    f"| 📅 {s.get('data','')} | [Apri link]({s.get('link_pubblico','')})"
+                )
+        else:
+            st.info("Nessuna sessione creata ancora.")
+    except Exception as e:
+        st.error(f"Errore nel caricamento delle sessioni: {e}")
+
 
 # =====================================================
 # TAB 3 — GRUPPI
