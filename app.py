@@ -68,6 +68,7 @@ with st.sidebar:
 # 🧩 CONTENUTO PRINCIPALE
 # =====================================================
 
+tab1, tab2, tab3 = st.tabs(["👤 Profilo", "🏫 Sessioni", "🤝 Gruppi"])
 
 # =====================================================
 # TAB 1 — PROFILO STUDENTE
