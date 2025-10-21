@@ -1057,7 +1057,7 @@ if enable:
     st.markdown("***")
     st.info("Uso: crea ghost per testare creazione gruppi, cancellali dopo i test. Non abilitare in produzione.")
 
-    # =====================================================
+# =====================================================
 # 📥 ESPORTAZIONE CSV GRUPPI (per docenti)
 # =====================================================
 import io
@@ -1067,6 +1067,10 @@ st.markdown("---")
 st.subheader("📥 Esporta gruppi in CSV")
 
 try:
+    # Recupera nome sessione per etichetta
+    res_sess = supabase.table("sessioni").select("id,nome").eq("id", session_id).execute()
+    nome_sessione = res_sess.data[0]["nome"] if res_sess.data else session_id
+
     # Recupera gruppi e membri
     res_gr = supabase.table("gruppi").select("sessione_id,nome_gruppo,membri").eq("sessione_id", session_id).execute()
     gruppi = res_gr.data or []
@@ -1074,7 +1078,6 @@ try:
     if not gruppi:
         st.info("Nessun gruppo disponibile per l'esportazione.")
     else:
-        # Costruzione lista righe: sessione, gruppo, nome
         righe = []
         for g in gruppi:
             membri = g.get("membri", []) or []
@@ -1084,7 +1087,7 @@ try:
             res_prof = supabase.table("profiles").select("id,nome").in_("id", membri).execute()
             for p in (res_prof.data or []):
                 righe.append({
-                    "Sessione": g.get("sessione_id", "—"),
+                    "Nome sessione": nome_sessione,
                     "Nome gruppo": g.get("nome_gruppo", "—"),
                     "Nome partecipante": p.get("nome", "—")
                 })
@@ -1097,11 +1100,10 @@ try:
             st.download_button(
                 label="📥 Scarica CSV gruppi",
                 data=csv_buffer.getvalue(),
-                file_name=f"gruppi_sessione_{session_id}.csv",
+                file_name=f"gruppi_{nome_sessione.replace(' ', '_')}.csv",
                 mime="text/csv"
             )
         else:
             st.info("Nessun partecipante trovato nei gruppi.")
 except Exception as e:
     st.error(f"Errore durante l'esportazione: {e}")
-
