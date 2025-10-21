@@ -241,7 +241,7 @@ with tab2:
                 session_id = str(uuid.uuid4())[:8]
 
                 # Base URL app
-                base_url = st.secrets.get("BASE_URL", "https://team-hobbies.streamlit.app")
+                base_url = st.secrets.get("PUBLIC_URL", "https://team-hobbies-9ghc3ehkc4mbkxwpdhkqhn.streamlit.app/")
                 link_pubblico = f"{base_url}?session_id={session_id}"
 
                 # Salva nel DB
