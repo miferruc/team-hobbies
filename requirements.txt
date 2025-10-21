@@ -4,3 +4,4 @@ qrcode[pil]
 supabase
 streamlit-cookies-manager
 matplotlib
+plotly
