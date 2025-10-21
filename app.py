@@ -872,7 +872,7 @@ with tab3:
         st.error(f"Errore durante l’analisi gruppi: {e}")
 
 
-# ---------------------------
+    # ---------------------------
 # DEBUG: creazione / rimozione account "ghost" per test
 # ---------------------------
 import uuid, random, json
