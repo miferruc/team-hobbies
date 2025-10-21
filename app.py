@@ -509,15 +509,14 @@ with tab3:
         "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
     }
 
-        # =====================================================
+    # =====================================================
     # 🔀 CREAZIONE E CANCELLAZIONE GRUPPI
     # =====================================================
 
-    # Funzione per creare nuovi gruppi (sovrascrive quelli vecchi)
     def crea_gruppi_da_sessione(session_id, size=4):
         try:
-            # Elimina gruppi esistenti prima di crearne di nuovi
-            supabase.table("gruppi").delete().eq("session_id", session_id).execute()
+            # Elimina gruppi esistenti per la stessa sessione
+            supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
 
             # Recupera i partecipanti
             res_part = supabase.table("participants").select("user_id").eq("session_id", session_id).execute()
@@ -539,7 +538,7 @@ with tab3:
                 membri = [p["id"] for p in g]
                 nome_gruppo = nomi_tema[i % len(nomi_tema)]
                 supabase.table("gruppi").insert({
-                    "session_id": session_id,
+                    "sessione_id": session_id,  # ✅ colonna corretta
                     "nome_gruppo": nome_gruppo,
                     "membri": membri,
                     "tema": tema,
@@ -550,15 +549,14 @@ with tab3:
         except Exception as e:
             st.error(f"Errore nella creazione gruppi: {e}")
 
-    # Funzione per cancellare tutti i gruppi della sessione
     def cancella_gruppi_da_sessione(session_id):
         try:
-            res = supabase.table("gruppi").delete().eq("session_id", session_id).execute()
+            supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()  # ✅ correzione
             st.warning("🗑️ Tutti i gruppi di questa sessione sono stati eliminati.")
+            st.experimental_rerun()
         except Exception as e:
             st.error(f"Errore durante l'eliminazione dei gruppi: {e}")
 
-    # --- Pulsanti azione ---
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🤝 Crea gruppi ora"):
