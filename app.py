@@ -960,42 +960,59 @@ def delete_ghosts():
 import uuid
 
 def create_ghosts(n=10, session_id=None, add_as_participants=False):
-    """Crea utenti ghost di test e li inserisce in profiles (e opzionalmente in participants)."""
+    """Crea utenti ghost di test creando prima l'utente in auth.users, poi in profiles."""
     created_ids = []
     try:
         for i in range(n):
-            ghost_id = str(uuid.uuid4())  # ✅ UUID valido per colonna id
             nome = f"Ghost User {i+1}"
             email = f"ghost{i+1}@syntia.fake"
             corso = "Test Corso"
 
-            # 🔹 Inserisci profilo ghost via funzione SQL
-            supabase.rpc("insert_ghost_profile", {
-                "p_id": ghost_id,
-                "p_email": email,
-                "p_nome": nome,
-                "p_corso": corso,
-                "p_materie_fatte": [],
-                "p_materie_dafare": [],
-                "p_hobby": [],
-                "p_approccio": "bilanciato",
-                "p_obiettivi": [],
-                "p_role": "ghost"
+            # 🔹 1️⃣ Crea l'utente in Supabase Auth (serve service key!)
+            res_user = supabase.auth.admin.create_user({
+                "email": email,
+                "password": "ghost123!",
+                "email_confirm": True,
+                "user_metadata": {"role": "ghost"}
+            })
+
+            if not res_user or not getattr(res_user, "user", None):
+                st.warning(f"Utente ghost {email} non creato correttamente.")
+                continue
+
+            ghost_id = res_user.user.id  # UUID generato da auth.users
+
+            # 🔹 2️⃣ Inserisci profilo in tabella 'profiles'
+            supabase.table("profiles").insert({
+                "id": ghost_id,
+                "email": email,
+                "nome": nome,
+                "corso": corso,
+                "materie_fatte": [],
+                "materie_dafare": [],
+                "hobby": [],
+                "approccio": "bilanciato",
+                "obiettivi": [],
+                "role": "ghost",
+                "created_at": datetime.now().isoformat(),
             }).execute()
 
-            # 🔹 Aggiungi alla sessione se richiesto
+            # 🔹 3️⃣ Aggiungi alla sessione se richiesto
             if add_as_participants and session_id:
                 supabase.table("participants").insert({
                     "user_id": ghost_id,
-                    "session_id": session_id
+                    "session_id": session_id,
+                    "joined_at": datetime.now().isoformat(),
                 }).execute()
 
             created_ids.append(ghost_id)
 
         return created_ids
+
     except Exception as e:
         st.error(f"Errore creazione ghost: {e}")
         return []
+
 
 def delete_ghosts():
     """Elimina tutti i profili ghost e i relativi participants."""
