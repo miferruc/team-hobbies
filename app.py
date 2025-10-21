@@ -460,8 +460,11 @@ with tab2:
                     "link_pubblico": link_pubblico,
                     "creato_da": user_id,
                     "timestamp": datetime.now().isoformat(),
+                    "attiva": True,  # ✅ nuova colonna
+                    "chiusa_il": None,  # ✅ nuova colonna
                 }
                 supabase.table("sessioni").insert(record).execute()
+
 
                 st.success(f"✅ Sessione creata con successo: {nome}")
 
@@ -495,6 +498,43 @@ with tab2:
             .order("timestamp", desc=True)
             .execute()
         )
+
+        if res.data:
+            for s in res.data:
+                nome = s["nome"]
+                attiva = s.get("attiva", True)
+                tema = s.get("tema", "")
+                materia = s.get("materia", "")
+                data = s.get("data", "")
+                link = s.get("link_pubblico", "")
+
+                status = "🟢 Attiva" if attiva else f"🔴 Chiusa il {s.get('chiusa_il','N/D')[:10]}"
+                st.markdown(f"**{nome}** | {tema} | {materia} | 📅 {data} | [{link}]({link}) | {status}")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"📕 Chiudi '{nome}'", key=f"chiudi_{s['id']}"):
+                        supabase.table("sessioni").update({
+                            "attiva": False,
+                            "chiusa_il": datetime.now().isoformat(),
+                        }).eq("id", s["id"]).execute()
+                        st.success(f"Sessione '{nome}' chiusa.")
+                        st.rerun()
+
+                with col2:
+                    if not attiva and st.button(f"♻️ Riapri '{nome}'", key=f"riapri_{s['id']}"):
+                        supabase.table("sessioni").update({
+                            "attiva": True,
+                            "chiusa_il": None,
+                        }).eq("id", s["id"]).execute()
+                        st.info(f"Sessione '{nome}' riaperta.")
+                        st.rerun()
+
+        else:
+            st.info("Nessuna sessione creata ancora.")
+    except Exception as e:
+        st.error(f"Errore nel caricamento delle sessioni: {e}")
+
         if res.data:
             for s in res.data:
                 st.write(
