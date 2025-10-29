@@ -1,792 +1,742 @@
 """
-App Gruppi login‑free – nuova implementazione
+Gruppi login‑free con profilo esteso e matching multi‑parametro.
 
-Questo file implementa un’applicazione Streamlit che permette di creare
-sessioni per la formazione di gruppi di studio senza necessità di login.
-Il flusso completo è:
+Questo modulo implementa una versione aggiornata dell’applicazione
+Streamlit per la formazione di gruppi di studio senza login. È basata
+sulla versione originale `app2.py`, ma aggiunge le seguenti
+caratteristiche:
 
-  1. Il docente crea una nuova sessione inserendo nome, materia, data,
-     tema e dimensione dei gruppi. Dopo la creazione vengono mostrati
-     l’ID della sessione, il link pubblico e il QR code da condividere
-     con gli studenti.
+• Preimposta elenchi di materie per le sezioni "già superate" e "da fare".
+• Introduce un nuovo campo di profilo "Dove mi vedo fra 5 anni" con
+  opzioni (es. Manager, CEO, Imprenditore, Consulente, Ricercatore,
+  Docente, Libero professionista, Altro). Per salvare questo campo è
+  necessario aggiungere la colonna `future_role` alla tabella
+  `profiles` su Supabase.
+• Permette di impostare pesi di matching non solo per hobby e
+  approccio, ma anche per materie, obiettivi e ruolo futuro. Il
+  calcolo della similarità usa una versione estesa della funzione
+  `compute_similarity` che combina le singole somiglianze pesate.
+• Rinomina "PIN" in "nickname" ovunque nell’interfaccia.
 
-  2. Gli studenti accedono alla sezione *Studente*, inseriscono
-     l’ID della sessione ricevuto e scelgono un nickname numerico a
-     4 cifre (da utilizzare come identificativo). Una volta confermato,
-     possono compilare un profilo personale su tre tab: alias
-     (facoltativo), interessi/approccio/materie, obiettivi e dove si
-     vedono fra cinque anni.
+Il flusso rimane identico:
+1. Il docente crea una sessione e ottiene subito link pubblico e QR.
+2. Gli studenti entrano con l’ID sessione e scelgono un nickname a 4
+   cifre. Possono quindi compilare il profilo in un’apposita tab.
+3. La lobby docente mostra quanti studenti hanno effettuato la scansione e
+   quanti hanno completato il profilo. Il docente regola i pesi di
+   matching, crea e pubblica i gruppi.
+4. Gli studenti vedono il proprio gruppo una volta pubblicato.
 
-  3. Il docente può monitorare in tempo reale quanti studenti hanno
-     scansionato il QR (o inserito l’ID) e quanti hanno completato il
-     profilo. Al momento opportuno può impostare i pesi per il
-     matching (hobby, approccio, materie, obiettivi, posizione futura)
-     e generare i gruppi di studio, che vengono salvati in Supabase.
-
-  4. Quando i gruppi sono pronti e pubblicati, gli studenti possono
-     visualizzare il proprio gruppo nella sezione *Profilo* con il loro
-     nickname evidenziato.
-
-Per il corretto funzionamento è necessario che il database Supabase
-contenga le seguenti tabelle:
-  • `sessioni` con colonne `id` (text), `nome` (text), `materia` (text),
-    `data` (text), `tema` (text), `created_at` (timestamp).
-  • `nicknames` con colonne `id` (uuid), `session_id` (text), `code4`
-    (integer), `nickname` (text), `guest_id` (uuid), `created_at`
-    (timestamp). La colonna `code4` deve essere univoca per sessione.
-  • `profiles` con colonne `id` (uuid), `approccio` (text), `hobby`
-    (json or text), `materie_fatte` (json or text), `materie_dafare`
-    (json or text), `obiettivi` (json or text), `future_role` (text),
-    `created_at` (timestamp). Si consiglia di rimuovere la colonna
-    `nickname` se presente (non è più utilizzata) e di aggiungere la
-    colonna `future_role` per la nuova domanda.
-  • `gruppi` con colonne `id` (uuid), `session_id` (text), `nome`
-    (text), `membri` (json or text), `theme` (text), `weights` (json),
-    `created_at` (timestamp).
-
-Se alcune colonne non sono presenti, è necessario aggiornarle su
-Supabase prima di usare l’app (vedi README o istruzioni SQL).
+Nota: per utilizzare correttamente il nuovo campo `future_role`, è
+necessario aggiungerlo alla tabella `profiles` su Supabase. Se la
+colonna non esiste, il salvataggio del profilo ignorerà questo campo.
 """
 
-import io
 import json
-import random
-import string
 import uuid
 from datetime import datetime
+from io import BytesIO
 
 import streamlit as st
-from supabase import create_client, Client
-
-try:
-    import qrcode  # QR code generation
-except ImportError:
-    qrcode = None
+from supabase import create_client
+import qrcode
 
 
-# -----------------------------------------------------------------------------
-# 🔧 CONFIGURAZIONE INIZIALE
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Configurazione e connessione
+# ----------------------------------------------------------------------------
 
-# Carica le credenziali da Streamlit secrets. Deve essere configurato in
-# `.streamlit/secrets.toml` con SUPABASE_URL e SUPABASE_SERVICE_KEY.
+# Configura la pagina Streamlit
+st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
+
+# Connetti a Supabase con chiave di servizio o anonima
 SUPABASE_URL = st.secrets.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY")
-
-@st.cache_resource(show_spinner=False)
-def get_supabase_client() -> Client:
-    """Inizializza il client Supabase."""
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+SUPABASE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY", st.secrets.get("SUPABASE_ANON_KEY"))
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-# -----------------------------------------------------------------------------
-# 🧮 UTILITIES
-# -----------------------------------------------------------------------------
+# Lista predefinita di materie disponibili
+SUBJECTS_OPTIONS = [
+    "Economia Aziendale",
+    "Statistica",
+    "Diritto Privato",
+    "Microeconomia",
+    "Marketing",
+    "Finanza",
+    "Econometria",
+    "Gestione Aziendale",
+    "Macroeconomia",
+    "Comunicazione",
+    "Matematica",
+    "Fisica",
+    "Programmazione",
+    "Chimica",
+    "Biologia",
+]
 
-def gen_session_id(length: int = 6) -> str:
-    """Genera un ID di sessione alfanumerico di lunghezza fissa."""
-    alphabet = string.ascii_uppercase + string.digits
-    return "".join(random.choices(alphabet, k=length))
+# Opzioni per la domanda "Dove mi vedo fra 5 anni"
+FUTURE_ROLE_OPTIONS = [
+    "Manager",
+    "CEO",
+    "Imprenditore",
+    "Consulente",
+    "Ricercatore",
+    "Docente",
+    "Libero professionista",
+    "Altro",
+]
 
-
-def create_qr_code(data: str) -> bytes | None:
-    """Restituisce i byte dell'immagine PNG del QR code, se disponibile."""
-    if not qrcode:
-        return None
-    qr = qrcode.QRCode(version=1, box_size=8, border=2)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def get_supabase() -> Client:
-    """Utility per recuperare il client supabase."""
-    return get_supabase_client()
-
-
-def insert_session(record: dict) -> None:
-    """Inserisce una sessione nel database."""
-    sb = get_supabase()
-    sb.table("sessioni").insert(record).execute()
-
-
-def insert_nickname(record: dict) -> dict:
-    """Crea un nickname nel database e ritorna il record creato."""
-    sb = get_supabase()
-    res = sb.table("nicknames").insert(record).execute()
-    if not res.data:
-        raise RuntimeError("Errore creazione nickname")
-    return res.data[0]
-
-
-def fetch_nicknames(session_id: str) -> list:
-    """Recupera tutti i nickname per una sessione."""
-    sb = get_supabase()
-    res = (
-        sb.table("nicknames")
-        .select("id, code4, nickname, created_at")
-        .eq("session_id", session_id)
-        .order("created_at")
-        .execute()
-    )
-    return res.data or []
+# Nomi di gruppi in base al tema
+THEME_GROUP_NAMES = {
+    "Anime": ["Akira", "Totoro", "Naruto", "Luffy", "Saitama", "Asuka", "Shinji", "Kenshin"],
+    "Sport": ["Maradona", "Jordan", "Federer", "Bolt", "Ali", "Phelps", "Serena"],
+    "Spazio": ["Apollo", "Orion", "Luna", "Cosmos", "Nova", "Mars"],
+    "Natura": ["Quercia", "Rosa", "Vento", "Onda", "Sole", "Mare", "Cielo"],
+    "Tecnologia": ["Byte", "Pixel", "Quantum", "Neural", "Circuit", "Code"],
+    "Storia": ["Roma", "Atene", "Sparta", "Troia", "Cartagine", "Babilonia"],
+    "Mitologia": ["Zeus", "Athena", "Thor", "Ra", "Anubi", "Odino"],
+}
 
 
-def fetch_profiles(nickname_ids: list[str]) -> dict[str, dict]:
-    """Restituisce un dizionario nickname_id → profilo (o vuoto se non trovato)."""
-    if not nickname_ids:
-        return {}
-    sb = get_supabase()
-    res = (
-        sb.table("profiles")
-        .select(
-            "id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role"
-        )
-        .in_("id", nickname_ids)
-        .execute()
-    )
-    profiles = {}
-    for r in res.data or []:
-        profiles[r["id"]] = r
-    return profiles
+# ----------------------------------------------------------------------------
+# Funzioni di utilità
+# ----------------------------------------------------------------------------
 
-
-def insert_or_update_profile(nickname_id: str, payload: dict) -> None:
-    """Inserisce o aggiorna un profilo utente."""
-    sb = get_supabase()
-    # controlla se esiste già
-    res = sb.table("profiles").select("id").eq("id", nickname_id).limit(1).execute()
-    if res.data:
-        sb.table("profiles").update(payload).eq("id", nickname_id).execute()
-    else:
-        sb.table("profiles").insert(payload).execute()
-
-
-def update_nickname_alias(nickname_id: str, alias: str) -> None:
-    """Aggiorna il campo nickname (alias) nella tabella nicknames."""
-    sb = get_supabase()
-    sb.table("nicknames").update({"nickname": alias}).eq("id", nickname_id).execute()
-
-
-def compute_similarity(p1: dict, p2: dict, weights: dict[str, float]) -> float:
-    """
-    Calcola un punteggio di somiglianza tra due profili in base a varie categorie.
-
-    Le categorie considerate sono: hobby, approccio, materie_fatte/materie_dafare, obiettivi,
-    future_role. Ogni categoria riceve un peso da 0 a 1. La somiglianza è calcolata come
-    somma pesata delle singole somiglianze (Jaccard per insiemi, 1/0 per singoli).
-    """
-    def jaccard(a, b) -> float:
-        s1 = set(a) if isinstance(a, (list, set)) else set(a or [])
-        s2 = set(b) if isinstance(b, (list, set)) else set(b or [])
-        if not s1 and not s2:
-            return 1.0
-        return len(s1 & s2) / len(s1 | s2) if (s1 | s2) else 0.0
-
-    score = 0.0
-    # hobby
-    score += weights.get("hobby", 0) * jaccard(p1.get("hobby", []), p2.get("hobby", []))
-    # approccio
-    score += weights.get("approccio", 0) * (
-        1.0 if p1.get("approccio") == p2.get("approccio") and p1.get("approccio") else 0.0
-    )
-    # materie (fatte + da fare)
-    m1 = set(p1.get("materie_fatte", []) or []) | set(p1.get("materie_dafare", []) or [])
-    m2 = set(p2.get("materie_fatte", []) or []) | set(p2.get("materie_dafare", []) or [])
-    score += weights.get("materie", 0) * jaccard(m1, m2)
-    # obiettivi
-    score += weights.get("obiettivi", 0) * jaccard(p1.get("obiettivi", []), p2.get("obiettivi", []))
-    # future_role
-    score += weights.get("future_role", 0) * (
-        1.0 if p1.get("future_role") == p2.get("future_role") and p1.get("future_role") else 0.0
-    )
-    return score
-
-
-def group_students(profiles: dict[str, dict], group_size: int, weights: dict[str, float]) -> list[list[str]]:
-    """
-    Assegna gli studenti a gruppi in modo greedy sulla base delle similitudini.
-
-    L'algoritmo ordina casualmente gli studenti, poi crea gruppi scegliendo
-    per ciascun gruppo gli studenti con somiglianza massima tra loro.
-    Restituisce una lista di liste di nickname_id.
-    """
-    if not profiles:
-        return []
-    ids = list(profiles.keys())
-    random.shuffle(ids)
-    groups = []
-    used = set()
-    for i in ids:
-        if i in used:
-            continue
-        group = [i]
-        used.add(i)
-        # scegli membri più simili finché gruppo non pieno
-        while len(group) < group_size:
-            candidates = [j for j in ids if j not in used]
-            if not candidates:
-                break
-            # ordina per similitudine decrescente rispetto a media del gruppo
-            def avg_sim(j):
-                return sum(
-                    compute_similarity(profiles[j], profiles[member], weights) for member in group
-                ) / len(group)
-            best = max(candidates, key=avg_sim)
-            group.append(best)
-            used.add(best)
-        groups.append(group)
-    return groups
-
-
-def save_groups(session_id: str, groups: list[list[str]], theme: str, weights: dict[str, float]) -> None:
-    """Salva i gruppi nel database Supabase."""
-    sb = get_supabase()
-    group_records = []
-    for idx, grp in enumerate(groups, start=1):
-        record = {
-            "id": str(uuid.uuid4()),
-            "session_id": session_id,
-            "nome": f"Gruppo {idx}",
-            "membri": grp,
-            "theme": theme,
-            "weights": weights,
-            "created_at": datetime.utcnow().isoformat(),
-        }
-        group_records.append(record)
-    if group_records:
-        sb.table("gruppi").insert(group_records).execute()
-
-
-def fetch_groups(session_id: str) -> list[dict]:
-    """Recupera i gruppi per una sessione."""
-    sb = get_supabase()
-    res = sb.table("gruppi").select("id, nome, membri").eq("session_id", session_id).order("nome").execute()
-    return res.data or []
-
-
-def profile_completed(nickname_id: str) -> bool:
-    """Ritorna True se esiste un profilo per il nickname dato."""
-    sb = get_supabase()
-    res = sb.table("profiles").select("id").eq("id", nickname_id).limit(1).execute()
-    return bool(res.data)
-
-
-def get_session_link(session_id: str) -> str:
-    """Costruisce un link di join basato sull'ID sessione."""
-    base = st.secrets.get("PUBLIC_BASE_URL", "http://localhost:8501")
+def build_join_url(session_id: str) -> str:
+    """Restituisce un URL pubblico per la sessione corrente."""
+    base = st.secrets.get("PUBLIC_URL", st.secrets.get("PUBLIC_BASE_URL", "http://localhost:8501"))
+    if not base.endswith("/"):
+        base += "/"
     return f"{base}?session_id={session_id}"
 
 
-# -----------------------------------------------------------------------------
-# 🎓 VISTA DOCENTE
-# -----------------------------------------------------------------------------
+def generate_session_id() -> str:
+    """Genera un ID alfanumerico di 8 caratteri per la sessione."""
+    return str(uuid.uuid4())[:8]
 
-def teacher_view() -> None:
-    """Vista dedicata al docente per creare e gestire sessioni."""
-    st.subheader("👩‍🏫 Docente")
 
-    # Inizializza variabili di sessione per il docente
-    if "teacher_session_id" not in st.session_state:
-        st.session_state.teacher_session_id = None
-    if "group_size" not in st.session_state:
-        st.session_state.group_size = 4
-    if "weights" not in st.session_state:
-        st.session_state.weights = {
-            "hobby": 0.7,
-            "approccio": 0.3,
-            "materie": 0.3,
-            "obiettivi": 0.3,
-            "future_role": 0.3,
-        }
-    if "published_sessions" not in st.session_state:
-        st.session_state.published_sessions = set()
+def get_nicknames(session_id: str):
+    """Recupera tutti i record della tabella 'nicknames' per la sessione."""
+    try:
+        res = (
+            supabase.table("nicknames")
+            .select("id, code4, nickname, created_at")
+            .eq("session_id", session_id)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
 
-    # Se non esiste una sessione attiva, mostra il form di creazione
-    if st.session_state.teacher_session_id is None:
-        with st.form("create_session_form", clear_on_submit=False):
-            st.write("### Crea una nuova sessione")
-            nome = st.text_input("Nome sessione", placeholder="Nome lezione")
-            materia = st.text_input("Materia", placeholder="Es. Matematica")
-            data_sessione = st.date_input("Data", value=datetime.now().date())
-            tema = st.selectbox("Tema", [
-                "Innovazione",
-                "Spazio",
-                "Ambiente",
-                "Arte",
-                "Letteratura",
-                "Tecnologia",
-            ])
-            group_size = st.number_input("Dimensione gruppi", min_value=2, max_value=10, value=4, step=1)
-            create_click = st.form_submit_button("Crea sessione")
 
-        if create_click:
-            if not nome or not materia:
-                st.warning("Compila tutti i campi per creare la sessione.")
-            else:
-                # Genera ID e salva la sessione
-                sid = gen_session_id()
-                record = {
-                    "id": sid,
-                    "nome": nome,
-                    "materia": materia,
-                    "data": data_sessione.strftime("%Y-%m-%d"),
-                    "tema": tema,
-                    "created_at": datetime.utcnow().isoformat(),
-                }
-                try:
-                    insert_session(record)
-                    st.session_state.teacher_session_id = sid
-                    st.session_state.group_size = int(group_size)
-                    st.session_state.session_theme = tema
-                    st.success(f"Sessione '{nome}' creata con ID {sid}.")
-                except Exception as e:
-                    st.error(f"Errore creazione sessione: {e}")
+def get_ready_ids(session_id: str):
+    """Restituisce l'insieme degli ID nickname che hanno un profilo associato."""
+    nicks = get_nicknames(session_id)
+    nick_ids = [n["id"] for n in nicks]
+    if not nick_ids:
+        return set()
+    try:
+        res = supabase.table("profiles").select("id").in_("id", nick_ids).execute()
+        return set([r["id"] for r in (res.data or [])])
+    except Exception:
+        return set()
 
-        return  # interrompe l'esecuzione per mostrare solo il form
 
-    # Se esiste una sessione attiva
-    sid = st.session_state.teacher_session_id
-    group_size = st.session_state.group_size
-
-    # Mostra link e QR code
-    st.write(f"### Sessione attiva: `{sid}`")
-    join_url = get_session_link(sid)
-    col_qr, col_link = st.columns([1, 2])
-    with col_qr:
-        qr_bytes = create_qr_code(join_url)
-        if qr_bytes:
-            st.image(qr_bytes, caption="QR per la sessione", use_column_width=False)
-        else:
-            st.warning("Impossibile generare il QR code (manca la libreria qrcode).")
-    with col_link:
-        st.write("Link pubblico per studenti:")
-        st.code(join_url, language="text")
-
-    st.markdown("---")
-
-    # Lobby: mostra studenti scansionati vs pronti
-    st.write("### Lobby studenti")
-    nickrows = fetch_nicknames(sid)
-    nickname_ids = [r["id"] for r in nickrows]
-    profiles = fetch_profiles(nickname_ids)
-    ready_ids = set(profiles.keys())
-    scanned_count = len(nickrows)
-    ready_count = len(ready_ids)
-    st.metric("Scansionati", scanned_count)
-    st.metric("Pronti", ready_count)
-
-    # Tabella
-    table_data = []
-    for idx, r in enumerate(nickrows, start=1):
-        pin = f"{r.get('code4'):04d}" if r.get("code4") is not None else "—"
-        alias = r.get("nickname") or "—"
-        pronto = "✅" if r["id"] in ready_ids else "⏳"
-        table_data.append({"PIN": pin, "Alias": alias, "Pronto": pronto})
-    if table_data:
-        st.table(table_data)
-    else:
-        st.info("Nessuno studente ancora scansionato.")
-
-    st.markdown("---")
-
-    # Imposta pesi matching
-    st.write("### Pesi per il matching")
-    hobby_w = st.slider("Peso hobby", 0.0, 1.0, value=st.session_state.weights.get("hobby", 0.7), step=0.05)
-    approach_w = st.slider(
-        "Peso approccio",
-        0.0,
-        1.0,
-        value=st.session_state.weights.get("approccio", 0.3),
-        step=0.05,
-    )
-    subjects_w = st.slider(
-        "Peso materie",
-        0.0,
-        1.0,
-        value=st.session_state.weights.get("materie", 0.3),
-        step=0.05,
-    )
-    goals_w = st.slider(
-        "Peso obiettivi",
-        0.0,
-        1.0,
-        value=st.session_state.weights.get("obiettivi", 0.3),
-        step=0.05,
-    )
-    role_w = st.slider(
-        "Peso dove mi vedo fra 5 anni",
-        0.0,
-        1.0,
-        value=st.session_state.weights.get("future_role", 0.3),
-        step=0.05,
-    )
-    st.session_state.weights = {
-        "hobby": hobby_w,
-        "approccio": approach_w,
-        "materie": subjects_w,
-        "obiettivi": goals_w,
-        "future_role": role_w,
+def create_session_db(nome: str, materia: str, data_sessione, tema: str):
+    """Crea una sessione nella tabella 'sessioni'."""
+    sid = generate_session_id()
+    link_pubblico = build_join_url(sid)
+    record = {
+        "id": sid,
+        "nome": nome,
+        "materia": materia,
+        "data": str(data_sessione),
+        "tema": tema,
+        "link_pubblico": link_pubblico,
+        "creato_da": "public",
+        "timestamp": datetime.now().isoformat(),
+        "attiva": True,
+        "chiusa_il": None,
     }
+    supabase.table("sessioni").insert(record).execute()
+    return sid
 
-    # Azioni: crea gruppi, pubblica, nuova sessione
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    create_groups_btn = col_btn1.button("Crea gruppi", disabled=ready_count == 0)
-    publish_btn = col_btn2.button("Pubblica gruppi", disabled=ready_count == 0)
-    reset_btn = col_btn3.button("Nuova sessione")
 
-    # Gestione nuova sessione
-    if reset_btn:
-        st.session_state.teacher_session_id = None
-        st.session_state.group_size = 4
-        st.session_state.weights = {
-            "hobby": 0.7,
-            "approccio": 0.3,
-            "materie": 0.3,
-            "obiettivi": 0.3,
-            "future_role": 0.3,
-        }
-        st.rerun()
+def create_nickname(session_id: str, code4: int):
+    """Crea un record nella tabella 'nicknames' con il codice a 4 cifre."""
+    res_check = (
+        supabase.table("nicknames").select("id").eq("session_id", session_id).eq("code4", code4).execute()
+    )
+    if res_check.data:
+        raise ValueError("Questo nickname è già in uso in questa sessione")
+    payload = {
+        "session_id": session_id,
+        "code4": code4,
+        "nickname": None,
+        "created_at": datetime.now().isoformat(),
+    }
+    res = supabase.table("nicknames").insert(payload).execute()
+    if res.data:
+        return res.data[0]
+    raise RuntimeError("Impossibile creare nickname")
 
-    # Crea i gruppi
-    if create_groups_btn and ready_count > 0:
-        # recupera profili dei pronti
-        ready_profiles = {rid: profiles[rid] for rid in ready_ids}
-        groups = group_students(ready_profiles, group_size, st.session_state.weights)
-        # salva gruppi localmente per preview
-        st.session_state.groups_preview = [grp.copy() for grp in groups]
-        # reset state of publish
-        st.session_state.published_sessions.discard(sid)
-        st.success("Gruppi creati! Ricordati di pubblicarli.")
 
-    # Pubblica gruppi
-    if publish_btn and ready_count > 0:
-        groups = getattr(st.session_state, "groups_preview", None)
-        if not groups:
-            st.warning("Devi prima creare i gruppi.")
+def save_profile(
+    nickname_id: str,
+    alias: str,
+    approccio: str,
+    hobby: list,
+    materie_fatte: list,
+    materie_dafare: list,
+    obiettivi: list,
+    future_role: str,
+):
+    """Salva o aggiorna il profilo utente e aggiorna il nickname nella tabella 'nicknames'."""
+    # Costruisci record da salvare nel profilo. Non include il campo 'nickname', che viene
+    # salvato nella tabella 'nicknames'.
+    record = {
+        "id": nickname_id,
+        "approccio": approccio,
+        "hobby": hobby,
+        "materie_fatte": materie_fatte,
+        "materie_dafare": materie_dafare,
+        "obiettivi": obiettivi,
+        "future_role": future_role,
+        "created_at": datetime.now().isoformat(),
+    }
+    # Salva o aggiorna la tabella 'profiles'. Se alcune colonne non esistono,
+    # prova a rimuoverle gradualmente.
+    try:
+        existing = supabase.table("profiles").select("id").eq("id", nickname_id).execute()
+        if existing.data:
+            # Aggiorna profilo esistente
+            try:
+                supabase.table("profiles").update(record).eq("id", nickname_id).execute()
+            except Exception:
+                # fallback: prova senza 'future_role'
+                alt_record = record.copy()
+                alt_record.pop("future_role", None)
+                supabase.table("profiles").update(alt_record).eq("id", nickname_id).execute()
         else:
             try:
-                save_groups(
-                    sid,
-                    groups,
-                    theme=st.session_state.get("session_theme", ""),
-                    weights=st.session_state.weights,
-                )
+                supabase.table("profiles").insert(record).execute()
             except Exception:
-                # riprova senza tema se errore
-                save_groups(sid, groups, theme="", weights=st.session_state.weights)
-            st.session_state.published_sessions.add(sid)
-            st.success("Gruppi pubblicati!")
-
-    # Mostra preview gruppi
-    st.write("### Gruppi creati")
-    groups_preview = getattr(st.session_state, "groups_preview", None)
-    if groups_preview:
-        # Visualizza i gruppi in tabella
-        for idx, grp in enumerate(groups_preview, start=1):
-            st.markdown(f"**Gruppo {idx}**")
-            # mostra alias o pin per ciascun membro
-            rows = []
-            for nid in grp:
-                pin = "—"
-                alias = "—"
-                for r in nickrows:
-                    if r["id"] == nid:
-                        pin = f"{r.get('code4'):04d}"
-                        alias = r.get("nickname") or pin
-                        break
-                rows.append({"Nickname": alias, "PIN": pin})
-            st.table(rows)
-    else:
-        st.info("Nessun gruppo ancora creato.")
+                # fallback: prova senza 'future_role'
+                alt_record = record.copy()
+                alt_record.pop("future_role", None)
+                supabase.table("profiles").insert(alt_record).execute()
+    except Exception as e:
+        st.warning(f"Errore nel salvataggio del profilo: {e}")
+    # Aggiorna l'alias nel record nickname
+    try:
+        supabase.table("nicknames").update({"nickname": alias}).eq("id", nickname_id).execute()
+    except Exception as e:
+        st.warning(f"Errore nell'aggiornamento del nickname: {e}")
 
 
-# -----------------------------------------------------------------------------
-# 🎓 VISTA STUDENTE
-# -----------------------------------------------------------------------------
-
-def student_view() -> None:
-    """Vista per gli studenti: join sessione, scelta nickname, completamento profilo."""
-    st.subheader("👨‍🎓 Studente")
-
-    # stati per la vista studente
-    if "student_session_id" not in st.session_state:
-        st.session_state.student_session_id = ""
-    if "nickname_id" not in st.session_state:
-        st.session_state.nickname_id = None
-    if "pin_confirmed" not in st.session_state:
-        st.session_state.pin_confirmed = False
-    if "profile_completed" not in st.session_state:
-        st.session_state.profile_completed = False
-    if "groups_preview" not in st.session_state:
-        st.session_state.groups_preview = None
-
-    # Se non è ancora stato inserito un session_id, chiedilo
-    if not st.session_state.student_session_id:
-        sid_input = st.text_input("ID sessione", placeholder="Inserisci l'ID fornito dal docente")
-        if st.button("Conferma sessione"):
-            if not sid_input:
-                st.warning("Inserisci un ID sessione valido.")
-            else:
-                st.session_state.student_session_id = sid_input.strip().upper()
-                st.rerun()
-        return
-
-    sid = st.session_state.student_session_id
-    st.write(f"Partecipa alla sessione `{sid}`")
-
-    # Scegli nickname (PIN 4 cifre)
-    if not st.session_state.pin_confirmed:
-        with st.form("choose_pin"):
-            st.write("### Scegli un nickname (PIN a 4 cifre)")
-            pin_str = st.text_input(
-                "Nickname (4 cifre)", max_chars=4, help="Usa quattro cifre (es. 1234)"
-            )
-            confirm = st.form_submit_button("Conferma nickname")
-        if confirm:
-            if not pin_str.isdigit() or len(pin_str) != 4:
-                st.error("Il nickname deve essere composto da 4 cifre.")
-            else:
-                code4 = int(pin_str)
-                try:
-                    # controlla unicità nel DB
-                    nicknames = fetch_nicknames(sid)
-                    existing_pins = {n["code4"] for n in nicknames}
-                    if code4 in existing_pins:
-                        st.error("Questo nickname è già stato preso, scegline un altro.")
-                    else:
-                        # crea record nickname
-                        record = {
-                            "id": str(uuid.uuid4()),
-                            "session_id": sid,
-                            "code4": code4,
-                            "nickname": "",  # alias inizialmente vuoto
-                            "guest_id": str(uuid.uuid4()),
-                            "created_at": datetime.utcnow().isoformat(),
-                        }
-                        newnick = insert_nickname(record)
-                        st.session_state.nickname_id = newnick["id"]
-                        st.session_state.pin_confirmed = True
-                        # salva il pin inserito per usarlo come fallback alias
-                        st.session_state.chosen_pin = pin_str
-                        st.success("Nickname confermato! Ora completa il profilo.")
-                except Exception as e:
-                    st.error(f"Errore durante la creazione del nickname: {e}")
-        return
-
-    # nickname scelto, procedi con il profilo
-    nickname_id = st.session_state.nickname_id
-    if not nickname_id:
-        st.error("Impossibile recuperare il tuo nickname. Ricarica la pagina.")
-        return
-
-    # recupera profilo esistente se presente
-    prof_exist = fetch_profiles([nickname_id])
-    existing = prof_exist.get(nickname_id, {})
-
-    # Visualizza form di profilo
-    st.write("### Completa il tuo profilo")
-    tabs = st.tabs(["Alias", "Interessi", "Obiettivi"])
-
-    # TAB 1: alias
-    with tabs[0]:
-        alias = st.text_input(
-            "Alias (facoltativo)", value="", max_chars=12, help="Un nome alternativo al tuo PIN."
-        )
-
-    # TAB 2: interessi e materie
-    with tabs[1]:
-        approcci = ["Analitico", "Creativo", "Pratico", "Comunicativo"]
-        approccio = st.selectbox(
-            "Approccio al lavoro di gruppo",
-            approcci,
-            index=approcci.index(existing.get("approccio", approcci[0]))
-            if existing.get("approccio") in approcci
-            else 0,
-        )
-        hobbies_list = [
-            "Sport",
-            "Lettura",
-            "Musica",
-            "Viaggi",
-            "Videogiochi",
-            "Arte",
-            "Volontariato",
-            "Cucina",
-            "Fotografia",
-            "Cinema",
-        ]
-        default_hobbies = []
-        raw_hobby = existing.get("hobby")
-        if raw_hobby:
-            try:
-                default_hobbies = json.loads(raw_hobby) if isinstance(raw_hobby, str) else list(raw_hobby)
-            except Exception:
-                default_hobbies = list(raw_hobby) if isinstance(raw_hobby, list) else []
-        hobby = st.multiselect("Hobby", options=hobbies_list, default=[h for h in default_hobbies if h in hobbies_list])
-        # predefinite
-        subjects_list = [
-            "Matematica",
-            "Fisica",
-            "Statistica",
-            "Programmazione",
-            "Economia",
-            "Marketing",
-            "Finanza",
-            "Diritto",
-            "Ingegneria",
-            "Biologia",
-            "Chimica",
-            "Storia",
-            "Letteratura",
-        ]
-        default_done = []
-        raw_done = existing.get("materie_fatte")
-        if raw_done:
-            try:
-                default_done = json.loads(raw_done) if isinstance(raw_done, str) else list(raw_done)
-            except Exception:
-                default_done = list(raw_done) if isinstance(raw_done, list) else []
-        materie_fatte = st.multiselect(
-            "Materie già superate",
-            options=subjects_list,
-            default=[m for m in default_done if m in subjects_list],
-        )
-        default_todo = []
-        raw_todo = existing.get("materie_dafare")
-        if raw_todo:
-            try:
-                default_todo = json.loads(raw_todo) if isinstance(raw_todo, str) else list(raw_todo)
-            except Exception:
-                default_todo = list(raw_todo) if isinstance(raw_todo, list) else []
-        materie_dafare = st.multiselect(
-            "Materie da fare",
-            options=[m for m in subjects_list if m not in materie_fatte],
-            default=[m for m in default_todo if m in subjects_list and m not in materie_fatte],
-        )
-
-    # TAB 3: obiettivi e futuro
-    with tabs[2]:
-        goals_list = [
-            "Passare gli esami a prescindere dal voto",
-            "Raggiungere una media del 30",
-            "Migliorare la comprensione delle materie",
-            "Creare connessioni e fare gruppo",
-            "Prepararmi per la carriera futura",
-        ]
-        default_goals = []
-        raw_goals = existing.get("obiettivi")
-        if raw_goals:
-            try:
-                default_goals = json.loads(raw_goals) if isinstance(raw_goals, str) else list(raw_goals)
-            except Exception:
-                default_goals = list(raw_goals) if isinstance(raw_goals, list) else []
-        obiettivi = st.multiselect(
-            "Obiettivi accademici",
-            options=goals_list,
-            default=[g for g in default_goals if g in goals_list],
-        )
-        # nuovo campo: dove mi vedo fra 5 anni
-        future_opts = [
-            "Manager",
-            "CEO",
-            "Imprenditore",
-            "Consulente",
-            "Ricercatore",
-            "Docente",
-            "Libero professionista",
-            "Altro",
-        ]
-        future_role = st.selectbox(
-            "Dove mi vedo fra 5 anni",
-            options=future_opts,
-            index=future_opts.index(existing.get("future_role", future_opts[0]))
-            if existing.get("future_role") in future_opts
-            else 0,
-        )
-        save = st.button("Salva profilo")
-
-    if save:
-        # prepara payload per profilo
-        payload = {
-            "id": nickname_id,
-            "approccio": approccio,
-            "hobby": hobby,
-            "materie_fatte": materie_fatte,
-            "materie_dafare": materie_dafare,
-            "obiettivi": obiettivi,
-            "future_role": future_role,
-            "created_at": datetime.utcnow().isoformat(),
-        }
+def normalize_field(x) -> set:
+    """Normalizza un campo hobby/materie/obiettivi in un set di stringhe."""
+    if not x:
+        return set()
+    if isinstance(x, list):
+        return set([str(i) for i in x])
+    if isinstance(x, str):
         try:
-            insert_or_update_profile(nickname_id, payload)
-            # aggiorna alias nella tabella nicknames
-            # usa alias inserito o il PIN scelto salvato nello stato sessione
-            alias_to_store = alias.strip() if alias.strip() else st.session_state.get("chosen_pin", "")
-            update_nickname_alias(nickname_id, alias_to_store)
-            st.session_state.profile_completed = True
-            st.success("Profilo salvato!")
-        except Exception as e:
-            st.error(f"Errore nel salvataggio del profilo: {e}")
+            parsed = json.loads(x)
+            if isinstance(parsed, list):
+                return set([str(i) for i in parsed])
+        except Exception:
+            return {x}
+    return {str(x)}
 
-    # Dopo il salvataggio, se i gruppi sono stati pubblicati, mostra il gruppo
-    # Recupera gruppi se pubblicati
-    sid = st.session_state.student_session_id
-    if sid in st.session_state.published_sessions and st.session_state.profile_completed:
-        st.markdown("---")
-        st.write("### Il tuo gruppo")
-        grp_records = fetch_groups(sid)
-        if not grp_records:
-            st.info("I gruppi non sono ancora stati caricati.")
-        else:
-            # trova il gruppo a cui appartengo
-            my_group = None
-            for rec in grp_records:
-                if nickname_id in rec.get("membri", []):
-                    my_group = rec
-                    break
-            if not my_group:
-                st.info("Non appartieni ancora a nessun gruppo.")
+
+def compute_similarity_ext(p1, p2, weights: dict) -> float:
+    """
+    Calcola una misura di somiglianza tra due profili combinando
+    hobby, approccio, materie, obiettivi e ruolo futuro. Ogni
+    categoria è pesata secondo il dizionario `weights`.
+    """
+    score = 0.0
+    # Hobby: Jaccard tra insiemi
+    h1, h2 = normalize_field(p1.get("hobby")), normalize_field(p2.get("hobby"))
+    if h1 or h2:
+        score += weights.get("hobby", 0) * (len(h1 & h2) / len(h1 | h2))
+    # Approccio: 1 se uguale
+    if p1.get("approccio") and p2.get("approccio"):
+        score += weights.get("approccio", 0) * (1.0 if p1["approccio"] == p2["approccio"] else 0.0)
+    # Materie: unione di fatte+da fare
+    m1 = normalize_field(p1.get("materie_fatte")) | normalize_field(p1.get("materie_dafare"))
+    m2 = normalize_field(p2.get("materie_fatte")) | normalize_field(p2.get("materie_dafare"))
+    if m1 or m2:
+        score += weights.get("materie", 0) * (len(m1 & m2) / len(m1 | m2))
+    # Obiettivi
+    o1, o2 = normalize_field(p1.get("obiettivi")), normalize_field(p2.get("obiettivi"))
+    if o1 or o2:
+        score += weights.get("obiettivi", 0) * (len(o1 & o2) / len(o1 | o2))
+    # Ruolo futuro
+    fr1, fr2 = p1.get("future_role"), p2.get("future_role")
+    if fr1 and fr2:
+        score += weights.get("future_role", 0) * (1.0 if fr1 == fr2 else 0.0)
+    return score
+
+
+def create_groups_ext(session_id: str, group_size: int, weights: dict):
+    """Crea gruppi in base ai pesi indicati."""
+    # recupera tutti i nickname ID per la sessione
+    nick_res = supabase.table("nicknames").select("id").eq("session_id", session_id).execute()
+    nick_ids = [n["id"] for n in (nick_res.data or [])]
+    if not nick_ids:
+        st.warning("Nessun partecipante ha effettuato la scansione.")
+        return
+    # recupera profili per gli ID
+    try:
+        prof_res = (
+            supabase.table("profiles")
+            .select(
+                "id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role"
+            )
+            .in_("id", nick_ids)
+            .execute()
+        )
+    except Exception:
+        # fallback senza future_role
+        prof_res = (
+            supabase.table("profiles")
+            .select("id, approccio, hobby, materie_fatte, materie_dafare, obiettivi")
+            .in_("id", nick_ids)
+            .execute()
+        )
+    profiles = {p["id"]: p for p in (prof_res.data or [])}
+    if not profiles:
+        st.warning("Nessun profilo completato. Non è possibile creare i gruppi.")
+        return
+    # lista di profili presenti (ignora i nickname senza profilo)
+    students = list(profiles.values())
+    # calcola punteggio medio di similarità per ciascun studente
+    avg_score = {}
+    for p in students:
+        scores = [compute_similarity_ext(p, q, weights) for q in students if q["id"] != p["id"]]
+        avg_score[p["id"]] = sum(scores) / len(scores) if scores else 0.0
+    # ordina studenti per punteggio decrescente
+    students.sort(key=lambda x: avg_score[x["id"]], reverse=True)
+    # suddivide in gruppi
+    groups = [students[i : i + group_size] for i in range(0, len(students), group_size)]
+    # recupera tema della sessione
+    sess_res = supabase.table("sessioni").select("tema").eq("id", session_id).execute()
+    theme = sess_res.data[0]["tema"] if sess_res.data else "Generico"
+    names_pool = THEME_GROUP_NAMES.get(theme, [f"Gruppo {i+1}" for i in range(len(groups))])
+    # cancella gruppi esistenti per la sessione
+    try:
+        supabase.table("gruppi").delete().eq("sessione_id", session_id).execute()
+    except Exception:
+        pass
+    # inserisci nuovi gruppi
+    for idx, grp in enumerate(groups):
+        membri_ids = [p["id"] for p in grp]
+        nome = names_pool[idx % len(names_pool)]
+        record = {
+            "sessione_id": session_id,
+            "nome_gruppo": nome,
+            "membri": membri_ids,
+            "tema": theme,
+            "data_creazione": datetime.now().isoformat(),
+            "pesi": weights,
+        }
+        supabase.table("gruppi").insert(record).execute()
+    st.success(f"Creati {len(groups)} gruppi basati sui pesi selezionati.")
+    # marca come non pubblicati nello stato locale
+    published = st.session_state.setdefault("published_sessions", {})
+    published[session_id] = False
+
+
+def publish_groups(session_id: str):
+    """Segna i gruppi come pubblicati nello stato locale."""
+    published = st.session_state.setdefault("published_sessions", {})
+    published[session_id] = True
+    st.success("Gruppi pubblicati!")
+
+
+def get_user_group(session_id: str, nickname_id: str):
+    """Ritorna il gruppo in cui si trova il nickname, oppure None."""
+    try:
+        res = supabase.table("gruppi").select("nome_gruppo, membri").eq("sessione_id", session_id).execute()
+        for g in res.data or []:
+            if nickname_id in (g.get("membri") or []):
+                return g
+    except Exception:
+        pass
+    return None
+
+
+# ----------------------------------------------------------------------------
+# Interfaccia utente
+# ----------------------------------------------------------------------------
+
+st.title("🎓 App Gruppi login‑free")
+
+# Tab di navigazione principale: Docente vs Studente
+tab_teacher, tab_student = st.tabs(["👩‍🏫 Docente", "👤 Studente"])
+
+
+with tab_teacher:
+    """
+    Vista per il docente. Permette di creare sessioni, vedere la lobby,
+    regolare i pesi per tutte le categorie e creare/pubblicare i gruppi.
+    """
+    st.header("Gestisci la sessione")
+    teacher_sid = st.session_state.get("teacher_session_id")
+    # se non c'è sessione corrente, mostra il form di creazione
+    if not teacher_sid:
+        st.subheader("Crea una nuova sessione")
+        nome = st.text_input("Nome sessione", key="doc_nome")
+        materia = st.text_input("Materia", key="doc_materia")
+        data_sessione = st.date_input("Data", value=datetime.now().date(), key="doc_data")
+        tema = st.selectbox("Tema", list(THEME_GROUP_NAMES.keys()), key="doc_tema")
+        group_size = st.number_input("Dimensione gruppi", min_value=2, max_value=12, value=4, step=1, key="doc_gr_size")
+        if st.button("📦 Crea sessione", key="doc_create_session"):
+            if not nome.strip():
+                st.error("Inserisci un nome valido per la sessione.")
             else:
-                st.markdown(f"**{my_group['nome']}**")
-                # mostra membri con evidenziazione
-                rows = []
-                for nid in my_group.get("membri", []):
-                    # trova alias o pin
-                    alias_val = "—"
-                    pin_val = "—"
-                    nicklist = fetch_nicknames(sid)
-                    for nrow in nicklist:
-                        if nrow["id"] == nid:
-                            alias_val = nrow.get("nickname") or f"{nrow.get('code4'):04d}"
-                            pin_val = f"{nrow.get('code4'):04d}" if nrow.get("code4") is not None else "—"
-                            break
-                    highlight = nid == nickname_id
-                    rows.append({"Nickname": alias_val, "PIN": pin_val, "Tu": "👈" if highlight else ""})
-                st.table(rows)
+                # crea la sessione nel DB
+                sid = create_session_db(nome, materia, data_sessione, tema)
+                st.session_state["teacher_session_id"] = sid
+                st.session_state["teacher_group_size"] = int(group_size)
+                # inizializza stato pubblicazione
+                published = st.session_state.setdefault("published_sessions", {})
+                published[sid] = False
+                st.success(f"Sessione '{nome}' creata con ID {sid}.")
+                # Ricarica l'app per mostrare subito i dettagli e il QR della sessione
+                st.experimental_rerun()
+    else:
+        sid = teacher_sid
+        # mostra i dettagli della sessione corrente
+        try:
+            sess = supabase.table("sessioni").select("nome, materia, data, tema, link_pubblico").eq("id", sid).execute()
+        except Exception:
+            sess = None
+        s = sess.data[0] if sess and sess.data else {}
+        st.markdown(f"**ID sessione:** `{sid}`  ")
+        st.markdown(f"**Nome:** {s.get('nome','')}  ")
+        st.markdown(f"**Materia:** {s.get('materia','')}  ")
+        st.markdown(f"**Data:** {s.get('data','')}  ")
+        st.markdown(f"**Tema:** {s.get('tema','')}  ")
+        st.markdown(f"**Dimensione gruppi:** {st.session_state.get('teacher_group_size', 4)}  ")
+        join_url = s.get("link_pubblico", build_join_url(sid))
+        # mostra QR e link
+        qr = qrcode.QRCode(box_size=6, border=2)
+        qr.add_data(join_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        # Usa use_container_width per evitare deprecazione di use_column_width
+        st.image(buf.getvalue(), caption="QR per gli studenti", use_container_width=False)
+        st.write("Link pubblico:")
+        st.code(join_url)
+        st.divider()
+        # lobby
+        st.subheader("Lobby studenti")
+        nicknames = get_nicknames(sid)
+        ready_ids = get_ready_ids(sid)
+        st.metric("Scansionati", len(nicknames))
+        st.metric("Pronti", len(ready_ids))
+        if nicknames:
+            table_data = []
+            for n in nicknames:
+                pin = n.get("code4")
+                alias = n.get("nickname") or "—"
+                stato = "✅" if n.get("id") in ready_ids else "⏳"
+                table_data.append({"Nickname": f"{pin:04d}" if pin is not None else "----", "Alias": alias, "Pronto": stato})
+            st.table(table_data)
+        else:
+            st.write("Nessuno studente ha ancora scansionato.")
+        st.divider()
+        # pesi
+        st.subheader("Pesi per il matching")
+        peso_hobby = st.slider("Peso hobby", 0.0, 1.0, 0.7, 0.05)
+        peso_approccio = st.slider("Peso approccio", 0.0, 1.0, 0.3, 0.05)
+        peso_materie = st.slider("Peso materie", 0.0, 1.0, 0.3, 0.05)
+        peso_obiettivi = st.slider("Peso obiettivi", 0.0, 1.0, 0.3, 0.05)
+        peso_future_role = st.slider("Peso ruolo futuro", 0.0, 1.0, 0.3, 0.05)
+        weights = {
+            "hobby": peso_hobby,
+            "approccio": peso_approccio,
+            "materie": peso_materie,
+            "obiettivi": peso_obiettivi,
+            "future_role": peso_future_role,
+        }
+        # bottoni
+        col1, col2, col3 = st.columns(3)
+        if col1.button("🔀 Crea gruppi", key="doc_crea_gruppi"):
+            size = st.session_state.get("teacher_group_size", 4)
+            create_groups_ext(sid, size, weights)
+        if col2.button("📢 Pubblica gruppi", key="doc_pubblica_gruppi"):
+            publish_groups(sid)
+        if col3.button("♻️ Nuova sessione", key="doc_reset_session"):
+            st.session_state.pop("teacher_session_id", None)
+            st.session_state.pop("teacher_group_size", None)
+            st.experimental_rerun()
+        st.divider()
+        # mostra i gruppi se creati
+        st.subheader("Gruppi creati")
+        try:
+            res = (
+                supabase.table("gruppi")
+                .select("nome_gruppo, membri")
+                .eq("sessione_id", sid)
+                .execute()
+            )
+            gruppi_creati = res.data or []
+        except Exception:
+            gruppi_creati = []
+        if not gruppi_creati:
+            st.info("Nessun gruppo ancora creato.")
+        else:
+            # mappa alias
+            all_ids = list({mid for g in gruppi_creati for mid in (g.get("membri") or [])})
+            alias_map = {}
+            if all_ids:
+                try:
+                    nick_res = (
+                        supabase.table("nicknames")
+                        .select("id, code4, nickname")
+                        .in_("id", all_ids)
+                        .execute()
+                    )
+                    for r in nick_res.data or []:
+                        pin = r.get("code4")
+                        alias_map[r["id"]] = r.get("nickname") or f"{pin:04d}"
+                except Exception:
+                    pass
+            for g in gruppi_creati:
+                st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**  ")
+                members_names = [alias_map.get(mid, mid[:4]) for mid in (g.get("membri") or [])]
+                st.write(", ".join(members_names))
 
 
-
-# -----------------------------------------------------------------------------
-# 🚀 MAIN
-# -----------------------------------------------------------------------------
-
-def main() -> None:
-    st.set_page_config(page_title="App Gruppi login‑free", page_icon="🎓", layout="wide")
-    st.title("App Gruppi login‑free")
-
-    # due schede per docente e studente
-    tab_doc, tab_stud = st.tabs(["Docente", "Studente"])
-
-    with tab_doc:
-        teacher_view()
-
-    with tab_stud:
-        student_view()
-
-
-if __name__ == "__main__":
-    main()
+with tab_student:
+    """
+    Vista per lo studente. Permette di inserire l'ID sessione, scegliere un
+    nickname a 4 cifre e compilare il profilo. Mostra il gruppo una volta
+    pubblicato.
+    """
+    st.header("Partecipa alla sessione")
+    # leggi parametri query
+    qp = getattr(st, "query_params", {})
+    qp_session = None
+    if qp:
+        qp_val = qp.get("session_id")
+        if qp_val:
+            qp_session = qp_val[0] if isinstance(qp_val, (list, tuple)) else qp_val
+    # input id sessione
+    session_id_input = st.text_input(
+        "ID sessione", value=qp_session or "", max_chars=8, key="stu_session_input"
+    )
+    if session_id_input:
+        st.session_state["student_session_id"] = session_id_input
+    # sub‑tabs per nickname e profilo
+    subtab_pin, subtab_profilo = st.tabs(["🔑 Nickname", "📝 Profilo"])
+    # gestione del nickname
+    with subtab_pin:
+        if not session_id_input:
+            st.info("Inserisci l'ID della sessione per procedere.")
+        else:
+            nickname_id = st.session_state.get("student_nickname_id")
+            nickname_session = st.session_state.get("student_session_id_cached")
+            if not nickname_id or nickname_session != session_id_input:
+                nick_val = st.text_input(
+                    "Scegli un nickname (4 cifre)",
+                    max_chars=4,
+                    key="stu_pin_input",
+                )
+                if st.button("Conferma nickname", key="stu_confirm_pin"):
+                    if not nick_val or not nick_val.isdigit() or len(nick_val) != 4:
+                        st.error("Il nickname deve essere un numero di 4 cifre.")
+                    else:
+                        try:
+                            new_nick = create_nickname(session_id_input, int(nick_val))
+                            st.session_state["student_nickname_id"] = new_nick["id"]
+                            st.session_state["student_session_id_cached"] = session_id_input
+                            st.session_state["student_pin"] = nick_val
+                            st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
+                        except Exception as e:
+                            st.error(f"Errore durante la creazione del nickname: {e}")
+            else:
+                st.success("Nickname già confermato. Puoi compilare il profilo nella scheda successiva.")
+                st.write(f"Il tuo nickname: {st.session_state.get('student_pin', '—')}")
+    # gestione del profilo
+    with subtab_profilo:
+        nickname_id = st.session_state.get("student_nickname_id")
+        if not nickname_id:
+            st.info("Prima scegli un nickname nella scheda precedente.")
+        else:
+            # carica profilo esistente
+            try:
+                prof_res = supabase.table("profiles").select("*").eq("id", nickname_id).execute()
+                profile_data = prof_res.data[0] if prof_res.data else None
+            except Exception:
+                profile_data = None
+            with st.form("stud_form_profilo"):
+                # alias: default al nickname se non impostato
+                default_alias = (
+                    profile_data.get("nickname")
+                    if profile_data
+                    else st.session_state.get("student_pin", "")
+                )
+                alias = st.text_input(
+                    "Alias (puoi usare il tuo nickname o un nome)",
+                    value=default_alias,
+                    max_chars=12,
+                )
+                # approccio
+                approcci = ["Analitico", "Creativo", "Pratico", "Comunicativo"]
+                selected_app = (
+                    profile_data.get("approccio")
+                    if profile_data
+                    else approcci[0]
+                )
+                approccio = st.selectbox(
+                    "Approccio al lavoro di gruppo",
+                    approcci,
+                    index=approcci.index(selected_app) if selected_app in approcci else 0,
+                )
+                # hobby
+                hobby_options = [
+                    "Sport",
+                    "Lettura",
+                    "Musica",
+                    "Viaggi",
+                    "Videogiochi",
+                    "Arte",
+                    "Volontariato",
+                    "Cucina",
+                    "Fotografia",
+                    "Cinema",
+                ]
+                current_hobbies = []
+                raw_h = profile_data.get("hobby") if profile_data else []
+                if raw_h:
+                    if isinstance(raw_h, list):
+                        current_hobbies = raw_h
+                    elif isinstance(raw_h, str):
+                        try:
+                            current_hobbies = json.loads(raw_h)
+                        except Exception:
+                            current_hobbies = [raw_h]
+                hobbies = st.multiselect(
+                    "Hobby",
+                    hobby_options,
+                    default=[h for h in current_hobbies if h in hobby_options],
+                )
+                # materie già superate
+                current_fatte = []
+                raw_fatte = profile_data.get("materie_fatte") if profile_data else []
+                if raw_fatte:
+                    if isinstance(raw_fatte, list):
+                        current_fatte = raw_fatte
+                    elif isinstance(raw_fatte, str):
+                        try:
+                            current_fatte = json.loads(raw_fatte)
+                        except Exception:
+                            current_fatte = [raw_fatte]
+                materie_fatte = st.multiselect(
+                    "Materie già superate",
+                    options=SUBJECTS_OPTIONS,
+                    default=[m for m in current_fatte if m in SUBJECTS_OPTIONS],
+                )
+                # materie da fare
+                current_dafare = []
+                raw_dafare = profile_data.get("materie_dafare") if profile_data else []
+                if raw_dafare:
+                    if isinstance(raw_dafare, list):
+                        current_dafare = raw_dafare
+                    elif isinstance(raw_dafare, str):
+                        try:
+                            current_dafare = json.loads(raw_dafare)
+                        except Exception:
+                            current_dafare = [raw_dafare]
+                # le materie da fare non devono includere quelle già fatte
+                available_dafare = [m for m in SUBJECTS_OPTIONS if m not in materie_fatte]
+                materie_dafare = st.multiselect(
+                    "Materie da fare",
+                    options=available_dafare,
+                    default=[m for m in current_dafare if m in available_dafare],
+                )
+                # obiettivi
+                obiettivi_opts = [
+                    "Passare gli esami a prescindere dal voto",
+                    "Raggiungere una media del 30",
+                    "Migliorare la comprensione delle materie",
+                    "Creare connessioni e fare gruppo",
+                    "Prepararmi per la carriera futura",
+                ]
+                current_ob = []
+                raw_o = profile_data.get("obiettivi") if profile_data else []
+                if raw_o:
+                    if isinstance(raw_o, list):
+                        current_ob = raw_o
+                    elif isinstance(raw_o, str):
+                        try:
+                            current_ob = json.loads(raw_o)
+                        except Exception:
+                            current_ob = [raw_o]
+                obiettivi_sel = st.multiselect(
+                    "Obiettivi accademici",
+                    options=obiettivi_opts,
+                    default=[o for o in current_ob if o in obiettivi_opts],
+                )
+                # dove mi vedo fra 5 anni
+                fr_default = (
+                    profile_data.get("future_role") if profile_data else FUTURE_ROLE_OPTIONS[0]
+                )
+                future_role = st.selectbox(
+                    "Dove mi vedo fra 5 anni",
+                    options=FUTURE_ROLE_OPTIONS,
+                    index=FUTURE_ROLE_OPTIONS.index(fr_default) if fr_default in FUTURE_ROLE_OPTIONS else 0,
+                )
+                invia = st.form_submit_button("💾 Salva profilo")
+            if invia:
+                save_profile(
+                    nickname_id,
+                    alias or st.session_state.get("student_pin", ""),
+                    approccio,
+                    hobbies,
+                    materie_fatte,
+                    materie_dafare,
+                    obiettivi_sel,
+                    future_role,
+                )
+                st.success("Profilo salvato!")
+            # mostra gruppo se pubblicato
+            published = st.session_state.get("published_sessions", {}).get(
+                st.session_state.get("student_session_id")
+            )
+            if published:
+                g = get_user_group(st.session_state.get("student_session_id"), nickname_id)
+                if g:
+                    st.subheader("Il tuo gruppo")
+                    st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**")
+                    member_ids = g.get("membri") or []
+                    alias_map = {}
+                    if member_ids:
+                        try:
+                            nr = (
+                                supabase.table("nicknames")
+                                .select("id, code4, nickname")
+                                .in_("id", member_ids)
+                                .execute()
+                            )
+                            for r in nr.data or []:
+                                alias_map[r["id"]] = r.get("nickname") or f"{r.get('code4'):04d}"
+                        except Exception:
+                            pass
+                    members_display = []
+                    for mid in member_ids:
+                        name = alias_map.get(mid, mid[:4])
+                        if mid == nickname_id:
+                            members_display.append(f"**{name} (tu)**")
+                        else:
+                            members_display.append(name)
+                    st.write(", ".join(members_display))
+                else:
+                    st.info("Non sei ancora assegnato a un gruppo.")
