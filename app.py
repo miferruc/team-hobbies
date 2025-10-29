@@ -24,8 +24,12 @@ def create_nickname_record(sbx: Client, session_id: str, guest_id: str) -> dict:
     res = sbx.table("nicknames").select("*").eq("session_id", session_id).eq("guest_id", guest_id).limit(1).execute()
     if res.data:
         return res.data[0]
-    code4 = reserve_code4_for_session(sbx, session_id)
-    payload = {"session_id": session_id, "guest_id": guest_id, "code4": code4}
+    payload = {
+    "session_id": session_id,
+    "guest_id": guest_id,
+    "code4": None  # il nickname verrà scelto dall’utente nella schermata profilo
+    }
+
     ins = sbx.table("nicknames").insert(payload).execute()
     if not ins.data:
         raise RuntimeError("Creazione nickname fallita")
@@ -112,9 +116,10 @@ def join_view():
         st.error(f"Errore creazione nickname: {e}")
         return
 
-    code4_str = f"{nick.get('code4', 0):04d}"
-    st.success(f"Il tuo codice: {code4_str}")
-    st.caption("Conserva il codice. Verrà evidenziato quando i gruppi saranno pubblicati.")
+    nickname_show = nick.get("nickname") or "—"
+    st.info(f"Sei entrato nella sessione {session_id}. Nickname: {nickname_show if nickname_show != '—' else 'non ancora impostato'}")
+    st.caption("Ora scegli il tuo nickname e completa il profilo.")
+
 
     c1, c2 = st.columns([1, 1])
     with c1:
