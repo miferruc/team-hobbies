@@ -497,10 +497,12 @@ def profile_view() -> None:
     st.title("Completa il tuo profilo")
     session_id = get_query_param("session_id")
     nickname_id = get_query_param("nickname_id")
+
     if not nickname_id:
         st.warning("Nessun nickname trovato. Torna alla pagina di join.")
         return
-    # Fetch existing profile
+
+    # --- Fetch existing profile
     try:
         res_prof = supabase.table("profiles").select("*").eq("id", nickname_id).limit(1).execute()
         profile = res_prof.data[0] if res_prof.data else {}
@@ -508,23 +510,27 @@ def profile_view() -> None:
         st.error(f"Errore nel caricamento del profilo: {e}")
         profile = {}
 
-    # Tabs for input
+    # --- Tabs
     tab1, tab2, tab3 = st.tabs(["Nickname", "Interessi", "Obiettivi"])
 
+    # --- TAB 1: nickname
     with tab1:
-        # Allow editing of nickname text (optional alias)
         current_pin = profile.get("nickname") or get_initial_pin(nickname_id)
         nickname_text = st.text_input(
             "Nickname (puoi usare il PIN o un alias)", value=current_pin or "", max_chars=12
         )
 
+    # --- TAB 2: interessi
     with tab2:
         approcci = ["Analitico", "Creativo", "Pratico", "Comunicativo"]
         approccio = st.selectbox(
-            "Approccio al lavoro di gruppo", approcci, index=approcci.index(profile.get("approccio", approcci[0]))
+            "Approccio al lavoro di gruppo",
+            approcci,
+            index=approcci.index(profile.get("approccio", approcci[0]))
             if profile.get("approccio") in approcci
             else 0,
         )
+
         hobbies_list = ["Sport", "Lettura", "Musica", "Viaggi", "Videogiochi", "Arte", "Volontariato"]
         default_hobby = []
         raw_hobby = profile.get("hobby")
@@ -540,6 +546,7 @@ def profile_view() -> None:
         materie_fatte = st.text_area("Materie già superate", value=comma_join(profile.get("materie_fatte")))
         materie_dafare = st.text_area("Materie da fare", value=comma_join(profile.get("materie_dafare")))
 
+    # --- TAB 3: obiettivi
     with tab3:
         obiettivi_opts = [
             "Passare gli esami a prescindere dal voto",
@@ -559,12 +566,14 @@ def profile_view() -> None:
             elif isinstance(raw_goal, list):
                 default_goals = raw_goal
         obiettivi = st.multiselect(
-            "Obiettivi accademici", options=obiettivi_opts, default=[g for g in default_goals if g in obiettivi_opts]
+            "Obiettivi accademici",
+            options=obiettivi_opts,
+            default=[g for g in default_goals if g in obiettivi_opts],
         )
         pronto = st.checkbox("Segnami come pronto", value=bool(profile))
-        salva = st.button("Salva profilo", type="primary")
+        salva = st.button("💾 Salva profilo", type="primary")
 
-    # Save profile on button click
+    # --- SAVE LOGIC
     if salva:
         record = {
             "id": nickname_id,
@@ -576,54 +585,27 @@ def profile_view() -> None:
             "obiettivi": obiettivi,
             "created_at": datetime.now().isoformat(),
         }
+
+        # 1️⃣ Salva profilo (anche parziale)
         try:
             if profile:
                 supabase.table("profiles").update(record).eq("id", nickname_id).execute()
             else:
                 supabase.table("profiles").insert(record).execute()
-            # mark nickname ready
-            supabase.table("nicknames").update({"nickname": nickname_text, "ready": True}).eq("id", nickname_id).execute()
             st.success("Profilo salvato.")
-            goto("mygroup", session_id=session_id, nickname_id=nickname_id)
         except Exception as e:
-            st.error(f"Errore nel salvataggio: {e}")
+            st.warning(f"Salvataggio parziale del profilo: {e}")
 
-
-def get_initial_pin(nickname_id: str) -> Optional[str]:
-    """Helper to retrieve the original PIN/code4 for a nickname."""
-    try:
-        res = supabase.table("nicknames").select("code4").eq("id", nickname_id).limit(1).execute()
-        if res.data:
-            code = res.data[0].get("code4")
-            return f"{code:04d}" if code is not None else None
-    except Exception:
-        pass
-    return None
-
-
-def comma_join(x: Optional[list]) -> str:
-    """Converts a list or string into a comma‑separated string."""
-    if not x:
-        return ""
-    if isinstance(x, str):
+        # 2️⃣ Aggiorna sempre il nickname e lo stato 'ready' nella tabella principale
         try:
-            j = json.loads(x)
-            if isinstance(j, list):
-                return ", ".join(j)
-            return str(x)
-        except Exception:
-            return str(x)
-    if isinstance(x, list):
-        return ", ".join(map(str, x))
-    return str(x)
+            supabase.table("nicknames").update(
+                {"nickname": nickname_text, "ready": True}
+            ).eq("id", nickname_id).execute()
+        except Exception as e:
+            st.error(f"Errore aggiornamento nickname: {e}")
 
-
-def split_by_comma(s: str) -> List[str]:
-    """Splits a comma‑separated string into a list, trimming whitespace."""
-    if not s:
-        return []
-    return [p.strip() for p in s.split(",") if p.strip()]
-
+        # 3️⃣ Naviga alla vista gruppo
+        goto("mygroup", session_id=session_id, nickname_id=nickname_id)
 
 # -----------------------------------------------------------------------------
 # 👥 MyGroup View: show group membership
