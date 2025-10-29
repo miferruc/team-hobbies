@@ -6,17 +6,13 @@ from supabase import create_client, Client
 try:
     import qrcode
 except Exception:
-    qrcode = None  # fallback: mostriamo solo il link se manca qrcode
+    qrcode = None
 # === [/APP-STEP2.A] ===
 
 LOGIN_FREE = True
 
 # === [APP-STEP1] code4 helper: prenota un codice 4 cifre per una sessione ===
 def reserve_code4_for_session(supabase_client, session_id: str) -> int:
-    """
-    Chiama l'RPC 'reserve_code4' su Supabase per ottenere un code4 libero nella sessione.
-    Ritorna un int tra 0 e 9999.
-    """
     res = supabase_client.rpc("reserve_code4", {"p_session_id": session_id}).execute()
     if not getattr(res, "data", None) and not isinstance(res.data, int):
         raise RuntimeError("reserve_code4 RPC failed")
@@ -25,28 +21,18 @@ def reserve_code4_for_session(supabase_client, session_id: str) -> int:
 
 # === [APP-STEP3.A] helper: crea nickname (nicknames) per sessione ===
 def create_nickname_record(sbx: Client, session_id: str, guest_id: str) -> dict:
-    """
-    Se esiste già un nickname per questo guest_id+session, lo riusa.
-    Altrimenti chiede un code4 all'RPC e inserisce su 'nicknames'.
-    Ritorna il record 'nicknames' creato/esistente.
-    """
     res = sbx.table("nicknames").select("*").eq("session_id", session_id).eq("guest_id", guest_id).limit(1).execute()
     if res.data:
         return res.data[0]
-
     code4 = reserve_code4_for_session(sbx, session_id)
-    payload = {
-        "session_id": session_id,
-        "guest_id": guest_id,
-        "code4": code4,
-    }
+    payload = {"session_id": session_id, "guest_id": guest_id, "code4": code4}
     ins = sbx.table("nicknames").insert(payload).execute()
     if not ins.data:
         raise RuntimeError("Creazione nickname fallita")
     return ins.data[0]
 # === [/APP-STEP3.A] ===
 
-# === [APP-UTIL.QP] query params compatibili nuovo/legacy ===
+# === [APP-UTIL.QP] query params compatibili e sicuri ===
 def _qp_read(key: str, default: str | None = None) -> str | None:
     try:
         if hasattr(st, "query_params"):
@@ -62,13 +48,19 @@ def _qp_read(key: str, default: str | None = None) -> str | None:
         return default
 
 def _qp_update(d: dict):
+    """Aggiorna i parametri solo se l’API è disponibile, evita conflitti."""
     try:
-        if hasattr(st, "query_params"):
+        if hasattr(st, "query_params") and hasattr(st.query_params, "update"):
             st.query_params.update(d)
             return
     except Exception:
         pass
-    st.experimental_set_query_params(**d)
+    try:
+        # fallback legacy ma solo se la nuova API non è attiva in questo run
+        if not hasattr(st, "query_params"):
+            st.experimental_set_query_params(**d)
+    except Exception:
+        pass
 # === [/APP-UTIL.QP] ===
 
 @st.cache_resource
@@ -83,7 +75,6 @@ def current_user_id():
     return gid
 
 def goto(view: str, **params):
-    # === [APP-PATCH] usa helper compatibile per aggiornare i query params ===
     _qp_update({"view": view, **params})
 
 def view_router():
@@ -101,7 +92,6 @@ def view_router():
 def join_view():
     st.title("Entra nella sessione")
 
-    # 1) session_id dal link/QR o input manuale
     session_id = _qp_read("session_id")
     if not session_id:
         with st.form("join_manual"):
@@ -114,10 +104,7 @@ def join_view():
             st.warning("Session ID mancante. Usa il QR, il link del docente o inserisci l'ID sopra.")
             return
 
-    # 2) guest_id locale
     gid = current_user_id()
-
-    # 3) crea/recupera nickname in DB
     try:
         sbx = sb()
         nick = create_nickname_record(sbx, session_id, gid)
@@ -125,12 +112,10 @@ def join_view():
         st.error(f"Errore creazione nickname: {e}")
         return
 
-    # 4) mostra codice e stato
     code4_str = f"{nick.get('code4', 0):04d}"
     st.success(f"Il tuo codice: {code4_str}")
     st.caption("Conserva il codice. Verrà evidenziato quando i gruppi saranno pubblicati.")
 
-    # 5) bottone per completare il profilo
     c1, c2 = st.columns([1, 1])
     with c1:
         if st.button("Completa profilo", type="primary", use_container_width=True):
