@@ -377,10 +377,7 @@ def get_user_group(session_id: str, nickname_id: str):
 # Interfaccia utente
 # ----------------------------------------------------------------------------
 
-# 🔒 Cookie manager creato UNA SOLA VOLTA
-cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
-if not cookies.ready():
-    st.stop()
+
 
 st.title("🎓 App Gruppi login-free")
 
