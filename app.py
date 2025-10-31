@@ -417,9 +417,11 @@ with tab_teacher:
                 st.session_state["teacher_group_size"] = int(group_size)
 
                 # 🔒 Salva sessione nei cookie per 6 ore
+                from datetime import timedelta
+
                 cookies["teacher_session_id"] = sid
-                cookies.set_expiry(6 * 60 * 60)
-                cookies.save()
+                cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+
 
                 # Stato pubblicazione
                 published = st.session_state.setdefault("published_sessions", {})
