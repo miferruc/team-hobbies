@@ -419,7 +419,8 @@ with tab_teacher:
                 st.session_state["teacher_group_size"] = int(group_size)
 
                 cookies["teacher_session_id"] = sid
-                cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+                cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                cookies.save()
 
 
                 # Stato pubblicazione
@@ -601,7 +602,8 @@ with tab_student:
         st.session_state.pop("student_pin", None)
         cookies.clear()
         cookies["student_session_id"] = session_id_input
-        cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+        cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+        cookies.save()
 
 
     # ---------------------------------------------------------
@@ -640,7 +642,8 @@ with tab_student:
                             cookies["student_session_id"] = session_id_input
                             cookies["student_nickname_id"] = new_nick["id"]
                             cookies["student_pin"] = nick_val
-                            cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+                            cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                            cookies.save()
 
                             st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
                         except Exception as e:
@@ -653,7 +656,8 @@ with tab_student:
                 cookies["student_session_id"] = st.session_state["student_session_id"]
                 cookies["student_nickname_id"] = st.session_state["student_nickname_id"]
                 cookies["student_pin"] = st.session_state["student_pin"]
-                cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+                cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                cookies.save()
 
     # ---------------------------------------------------------
     # PROFILO
