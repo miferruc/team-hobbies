@@ -38,6 +38,7 @@ from datetime import datetime
 from io import BytesIO
 
 import streamlit as st
+from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
 import qrcode
 
@@ -48,6 +49,10 @@ import qrcode
 
 # Configura la pagina Streamlit
 st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
+cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
+if not cookies.ready():
+    st.stop()
+
 
 # Connetti a Supabase con chiave di servizio o anonima
 SUPABASE_URL = st.secrets.get("SUPABASE_URL")
@@ -372,11 +377,20 @@ def get_user_group(session_id: str, nickname_id: str):
 # Interfaccia utente
 # ----------------------------------------------------------------------------
 
-st.title("🎓 App Gruppi login‑free")
+st.title("🎓 App Gruppi login-free")
+
+# Gestione cookies per sessione persistente (6 ore)
+from streamlit_cookies_manager import EncryptedCookieManager
+cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
+if not cookies.ready():
+    st.stop()
+
+# Recupera eventuale sessione salvata nei cookie
+if not st.session_state.get("teacher_session_id") and cookies.get("teacher_session_id"):
+    st.session_state["teacher_session_id"] = cookies.get("teacher_session_id")
 
 # Tab di navigazione principale: Docente vs Studente
 tab_teacher, tab_student = st.tabs(["👩‍🏫 Docente", "👤 Studente"])
-
 
 with tab_teacher:
     """
@@ -385,7 +399,10 @@ with tab_teacher:
     """
     st.header("Gestisci la sessione")
     teacher_sid = st.session_state.get("teacher_session_id")
-    # se non c'è sessione corrente, mostra il form di creazione
+
+    # ---------------------------------------------------------
+    # CREAZIONE SESSIONE
+    # ---------------------------------------------------------
     if not teacher_sid:
         st.subheader("Crea una nuova sessione")
         nome = st.text_input("Nome sessione", key="doc_nome")
@@ -393,53 +410,69 @@ with tab_teacher:
         data_sessione = st.date_input("Data", value=datetime.now().date(), key="doc_data")
         tema = st.selectbox("Tema", list(THEME_GROUP_NAMES.keys()), key="doc_tema")
         group_size = st.number_input("Dimensione gruppi", min_value=2, max_value=12, value=4, step=1, key="doc_gr_size")
+
         if st.button("📦 Crea sessione", key="doc_create_session"):
             if not nome.strip():
                 st.error("Inserisci un nome valido per la sessione.")
             else:
-                # crea la sessione nel DB
                 sid = create_session_db(nome, materia, data_sessione, tema)
                 st.session_state["teacher_session_id"] = sid
                 st.session_state["teacher_group_size"] = int(group_size)
-                # inizializza stato pubblicazione
+
+                # 🔒 Salva sessione nei cookie per 6 ore
+                cookies["teacher_session_id"] = sid
+                cookies.set_expiry(6 * 60 * 60)
+                cookies.save()
+
+                # Stato pubblicazione
                 published = st.session_state.setdefault("published_sessions", {})
                 published[sid] = False
                 st.success(f"Sessione '{nome}' creata con ID {sid}.")
-                # Ricarica l'app per mostrare subito i dettagli e il QR della sessione
                 st.rerun()
+
+    # ---------------------------------------------------------
+    # SESSIONE ATTIVA
+    # ---------------------------------------------------------
     else:
         sid = teacher_sid
-        # mostra i dettagli della sessione corrente
         try:
             sess = supabase.table("sessioni").select("nome, materia, data, tema, link_pubblico").eq("id", sid).execute()
         except Exception:
             sess = None
+
         s = sess.data[0] if sess and sess.data else {}
-        st.markdown(f"**ID sessione:** `{sid}`  ")
-        st.markdown(f"**Nome:** {s.get('nome','')}  ")
-        st.markdown(f"**Materia:** {s.get('materia','')}  ")
-        st.markdown(f"**Data:** {s.get('data','')}  ")
-        st.markdown(f"**Tema:** {s.get('tema','')}  ")
-        st.markdown(f"**Dimensione gruppi:** {st.session_state.get('teacher_group_size', 4)}  ")
+        st.markdown(f"**ID sessione:** `{sid}`")
+        st.markdown(f"**Nome:** {s.get('nome','')}")
+        st.markdown(f"**Materia:** {s.get('materia','')}")
+        st.markdown(f"**Data:** {s.get('data','')}")
+        st.markdown(f"**Tema:** {s.get('tema','')}")
+        st.markdown(f"**Dimensione gruppi:** {st.session_state.get('teacher_group_size', 4)}")
+
         join_url = s.get("link_pubblico", build_join_url(sid))
-        # mostra QR e link
+
+        # QR code
         qr = qrcode.QRCode(box_size=6, border=2)
         qr.add_data(join_url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
         buf = BytesIO()
         img.save(buf, format="PNG")
-        # Usa use_container_width per evitare deprecazione di use_column_width
         st.image(buf.getvalue(), caption="QR per gli studenti", use_container_width=False)
         st.write("Link pubblico:")
         st.code(join_url)
         st.divider()
-        # lobby
+
+        # ---------------------------------------------------------
+        # LOBBY STUDENTI (aggiornamento automatico ogni 15s)
+        # ---------------------------------------------------------
         st.subheader("Lobby studenti")
+        st_autorefresh(interval=15 * 1000, key="lobby_refresh")  # refresh automatico
+
         nicknames = get_nicknames(sid)
         ready_ids = get_ready_ids(sid)
         st.metric("Scansionati", len(nicknames))
         st.metric("Pronti", len(ready_ids))
+
         if nicknames:
             table_data = []
             for n in nicknames:
@@ -451,7 +484,10 @@ with tab_teacher:
         else:
             st.write("Nessuno studente ha ancora scansionato.")
         st.divider()
-        # pesi
+
+        # ---------------------------------------------------------
+        # PESI DI MATCHING
+        # ---------------------------------------------------------
         st.subheader("Pesi per il matching")
         peso_hobby = st.slider("Peso hobby", 0.0, 1.0, 0.7, 0.05)
         peso_approccio = st.slider("Peso approccio", 0.0, 1.0, 0.3, 0.05)
@@ -465,7 +501,10 @@ with tab_teacher:
             "obiettivi": peso_obiettivi,
             "future_role": peso_future_role,
         }
-        # bottoni
+
+        # ---------------------------------------------------------
+        # BOTTONI DOCENTE
+        # ---------------------------------------------------------
         col1, col2, col3 = st.columns(3)
         if col1.button("🔀 Crea gruppi", key="doc_crea_gruppi"):
             size = st.session_state.get("teacher_group_size", 4)
@@ -475,43 +514,40 @@ with tab_teacher:
         if col3.button("♻️ Nuova sessione", key="doc_reset_session"):
             st.session_state.pop("teacher_session_id", None)
             st.session_state.pop("teacher_group_size", None)
+            cookies.pop("teacher_session_id", None)
+            cookies.save()
             st.rerun()
+
         st.divider()
-        # mostra i gruppi se creati
+
+        # ---------------------------------------------------------
+        # GRUPPI CREATI
+        # ---------------------------------------------------------
         st.subheader("Gruppi creati")
         try:
-            res = (
-                supabase.table("gruppi")
-                .select("nome_gruppo, membri")
-                .eq("sessione_id", sid)
-                .execute()
-            )
+            res = supabase.table("gruppi").select("nome_gruppo, membri").eq("sessione_id", sid).execute()
             gruppi_creati = res.data or []
         except Exception:
             gruppi_creati = []
+
         if not gruppi_creati:
             st.info("Nessun gruppo ancora creato.")
         else:
-            # mappa alias
             all_ids = list({mid for g in gruppi_creati for mid in (g.get("membri") or [])})
             alias_map = {}
             if all_ids:
                 try:
-                    nick_res = (
-                        supabase.table("nicknames")
-                        .select("id, code4, nickname")
-                        .in_("id", all_ids)
-                        .execute()
-                    )
+                    nick_res = supabase.table("nicknames").select("id, code4, nickname").in_("id", all_ids).execute()
                     for r in nick_res.data or []:
                         pin = r.get("code4")
                         alias_map[r["id"]] = r.get("nickname") or f"{pin:04d}"
                 except Exception:
                     pass
             for g in gruppi_creati:
-                st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**  ")
+                st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**")
                 members_names = [alias_map.get(mid, mid[:4]) for mid in (g.get("membri") or [])]
                 st.write(", ".join(members_names))
+
 
 
 with tab_student:
