@@ -41,6 +41,8 @@ import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
 import qrcode
+from datetime import timedelta
+
 
 
 # ----------------------------------------------------------------------------
@@ -416,9 +418,6 @@ with tab_teacher:
                 st.session_state["teacher_session_id"] = sid
                 st.session_state["teacher_group_size"] = int(group_size)
 
-                # 🔒 Salva sessione nei cookie per 6 ore
-                from datetime import timedelta
-
                 cookies["teacher_session_id"] = sid
                 cookies.save(expires_at=datetime.now() + timedelta(hours=6))
 
@@ -469,10 +468,8 @@ with tab_teacher:
             st.rerun()
 
         # aggiorna automaticamente ogni 60 s senza flicker
-        import time
-        placeholder_time = st.empty()
-        placeholder_time.caption("Ultimo aggiornamento: " + datetime.now().strftime("%H:%M:%S"))
-        time.sleep(0.5)
+        st.caption(f"Ultimo aggiornamento: {datetime.now().strftime('%H:%M:%S')}")
+
 
 
 
@@ -602,11 +599,10 @@ with tab_student:
         st.session_state["student_session_id"] = session_id_input
         st.session_state.pop("student_nickname_id", None)
         st.session_state.pop("student_pin", None)
-        cookies.pop("student_nickname_id", None)
-        cookies.pop("student_pin", None)
+        cookies.clear()
         cookies["student_session_id"] = session_id_input
-        from datetime import timedelta
         cookies.save(expires_at=datetime.now() + timedelta(hours=6))
+
 
     # ---------------------------------------------------------
     # SUB-TABS: NICKNAME / PROFILO
@@ -640,7 +636,7 @@ with tab_student:
                             st.session_state["student_pin"] = nick_val
 
                             # 🔒 salva cookie per 6 ore
-                            from datetime import timedelta
+                
                             cookies["student_session_id"] = session_id_input
                             cookies["student_nickname_id"] = new_nick["id"]
                             cookies["student_pin"] = nick_val
@@ -654,7 +650,6 @@ with tab_student:
                 st.write(f"Il tuo nickname: {st.session_state.get('student_pin', '—')}")
 
                 # Assicura coerenza cookie ↔ stato
-                from datetime import timedelta
                 cookies["student_session_id"] = st.session_state["student_session_id"]
                 cookies["student_nickname_id"] = st.session_state["student_nickname_id"]
                 cookies["student_pin"] = st.session_state["student_pin"]
