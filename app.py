@@ -40,7 +40,6 @@ from io import BytesIO
 import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
-from streamlit_autorefresh import st_autorefresh
 import qrcode
 
 
@@ -466,7 +465,10 @@ with tab_teacher:
         # LOBBY STUDENTI (aggiornamento automatico ogni 15s)
         # ---------------------------------------------------------
         st.subheader("Lobby studenti")
-        st_autorefresh(interval=15 * 1000, key="lobby_refresh")  # refresh automatico
+        st.experimental_rerun()  # se vuoi forzare refresh manuale
+        # oppure, per un refresh automatico semplice:
+        st.markdown("<meta http-equiv='refresh' content='15'>", unsafe_allow_html=True)
+
 
         nicknames = get_nicknames(sid)
         ready_ids = get_ready_ids(sid)
