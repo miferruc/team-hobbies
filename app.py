@@ -406,7 +406,7 @@ with tab_teacher:
                 published[sid] = False
                 st.success(f"Sessione '{nome}' creata con ID {sid}.")
                 # Ricarica l'app per mostrare subito i dettagli e il QR della sessione
-                st.experimental_rerun()
+                st.rerun()
     else:
         sid = teacher_sid
         # mostra i dettagli della sessione corrente
@@ -475,7 +475,7 @@ with tab_teacher:
         if col3.button("♻️ Nuova sessione", key="doc_reset_session"):
             st.session_state.pop("teacher_session_id", None)
             st.session_state.pop("teacher_group_size", None)
-            st.experimental_rerun()
+            st.rerun()
         st.divider()
         # mostra i gruppi se creati
         st.subheader("Gruppi creati")
