@@ -40,6 +40,7 @@ from io import BytesIO
 import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
+from streamlit_autorefresh import st_autorefresh
 import qrcode
 
 
@@ -556,28 +557,61 @@ with tab_student:
     pubblicato.
     """
     st.header("Partecipa alla sessione")
-    # leggi parametri query
+
+    # ---------------------------------------------------------
+    # 🔒 COOKIE → STATO (persistenza 6 ore)
+    # ---------------------------------------------------------
+    if not st.session_state.get("student_session_id") and cookies.get("student_session_id"):
+        st.session_state["student_session_id"] = cookies.get("student_session_id")
+    if not st.session_state.get("student_nickname_id") and cookies.get("student_nickname_id"):
+        st.session_state["student_nickname_id"] = cookies.get("student_nickname_id")
+    if not st.session_state.get("student_pin") and cookies.get("student_pin"):
+        st.session_state["student_pin"] = cookies.get("student_pin")
+
+    # ---------------------------------------------------------
+    # LETTURA QUERY PARAM
+    # ---------------------------------------------------------
     qp = getattr(st, "query_params", {})
     qp_session = None
     if qp:
         qp_val = qp.get("session_id")
         if qp_val:
             qp_session = qp_val[0] if isinstance(qp_val, (list, tuple)) else qp_val
-    # input id sessione
-    session_id_input = st.text_input(
-        "ID sessione", value=qp_session or "", max_chars=8, key="stu_session_input"
+
+    # ---------------------------------------------------------
+    # INPUT SESSIONE
+    # ---------------------------------------------------------
+    default_session = (
+        qp_session
+        or st.session_state.get("student_session_id")
+        or cookies.get("student_session_id")
+        or ""
     )
-    if session_id_input:
+    session_id_input = st.text_input(
+        "ID sessione", value=default_session, max_chars=8, key="stu_session_input"
+    )
+
+    if session_id_input and session_id_input != st.session_state.get("student_session_id"):
+        # aggiorna stato e cookie
         st.session_state["student_session_id"] = session_id_input
-    # sub‑tabs per nickname e profilo
+        cookies["student_session_id"] = session_id_input
+        cookies.save(max_age=6 * 60 * 60)
+
+    # ---------------------------------------------------------
+    # SUB-TABS: NICKNAME / PROFILO
+    # ---------------------------------------------------------
     subtab_pin, subtab_profilo = st.tabs(["🔑 Nickname", "📝 Profilo"])
-    # gestione del nickname
+
+    # ---------------------------------------------------------
+    # NICKNAME
+    # ---------------------------------------------------------
     with subtab_pin:
         if not session_id_input:
             st.info("Inserisci l'ID della sessione per procedere.")
         else:
             nickname_id = st.session_state.get("student_nickname_id")
             nickname_session = st.session_state.get("student_session_id_cached")
+
             if not nickname_id or nickname_session != session_id_input:
                 nick_val = st.text_input(
                     "Scegli un nickname (4 cifre)",
@@ -593,13 +627,34 @@ with tab_student:
                             st.session_state["student_nickname_id"] = new_nick["id"]
                             st.session_state["student_session_id_cached"] = session_id_input
                             st.session_state["student_pin"] = nick_val
-                            st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
+
+                            # 🔒 salva cookie per 6 ore
+                            cookies["student_session_id"] = session_id_input
+                            cookies["student_nickname_id"] = new_nick["id"]
+                            cookies["student_pin"] = nick_val
+                            cookies.save(max_age=6 * 60 * 60)
+
+                            st.success(
+                                "Nickname confermato! Ora passa alla scheda Profilo per completare i dati."
+                            )
                         except Exception as e:
                             st.error(f"Errore durante la creazione del nickname: {e}")
             else:
                 st.success("Nickname già confermato. Puoi compilare il profilo nella scheda successiva.")
                 st.write(f"Il tuo nickname: {st.session_state.get('student_pin', '—')}")
-    # gestione del profilo
+
+                # assicurati che i cookie siano coerenti
+                if not cookies.get("student_nickname_id"):
+                    cookies["student_nickname_id"] = st.session_state["student_nickname_id"]
+                if not cookies.get("student_session_id"):
+                    cookies["student_session_id"] = st.session_state["student_session_id"]
+                if not cookies.get("student_pin"):
+                    cookies["student_pin"] = st.session_state["student_pin"]
+                cookies.save(max_age=6 * 60 * 60)
+
+    # ---------------------------------------------------------
+    # PROFILO
+    # ---------------------------------------------------------
     with subtab_profilo:
         nickname_id = st.session_state.get("student_nickname_id")
         if not nickname_id:
@@ -611,8 +666,9 @@ with tab_student:
                 profile_data = prof_res.data[0] if prof_res.data else None
             except Exception:
                 profile_data = None
+
             with st.form("stud_form_profilo"):
-                # alias: default al nickname se non impostato
+                # alias
                 default_alias = (
                     profile_data.get("nickname")
                     if profile_data
@@ -623,30 +679,20 @@ with tab_student:
                     value=default_alias,
                     max_chars=12,
                 )
+
                 # approccio
                 approcci = ["Analitico", "Creativo", "Pratico", "Comunicativo"]
-                selected_app = (
-                    profile_data.get("approccio")
-                    if profile_data
-                    else approcci[0]
-                )
+                selected_app = profile_data.get("approccio") if profile_data else approcci[0]
                 approccio = st.selectbox(
                     "Approccio al lavoro di gruppo",
                     approcci,
                     index=approcci.index(selected_app) if selected_app in approcci else 0,
                 )
+
                 # hobby
                 hobby_options = [
-                    "Sport",
-                    "Lettura",
-                    "Musica",
-                    "Viaggi",
-                    "Videogiochi",
-                    "Arte",
-                    "Volontariato",
-                    "Cucina",
-                    "Fotografia",
-                    "Cinema",
+                    "Sport", "Lettura", "Musica", "Viaggi", "Videogiochi",
+                    "Arte", "Volontariato", "Cucina", "Fotografia", "Cinema",
                 ]
                 current_hobbies = []
                 raw_h = profile_data.get("hobby") if profile_data else []
@@ -659,11 +705,11 @@ with tab_student:
                         except Exception:
                             current_hobbies = [raw_h]
                 hobbies = st.multiselect(
-                    "Hobby",
-                    hobby_options,
+                    "Hobby", hobby_options,
                     default=[h for h in current_hobbies if h in hobby_options],
                 )
-                # materie già superate
+
+                # materie fatte
                 current_fatte = []
                 raw_fatte = profile_data.get("materie_fatte") if profile_data else []
                 if raw_fatte:
@@ -679,6 +725,7 @@ with tab_student:
                     options=SUBJECTS_OPTIONS,
                     default=[m for m in current_fatte if m in SUBJECTS_OPTIONS],
                 )
+
                 # materie da fare
                 current_dafare = []
                 raw_dafare = profile_data.get("materie_dafare") if profile_data else []
@@ -690,13 +737,13 @@ with tab_student:
                             current_dafare = json.loads(raw_dafare)
                         except Exception:
                             current_dafare = [raw_dafare]
-                # le materie da fare non devono includere quelle già fatte
                 available_dafare = [m for m in SUBJECTS_OPTIONS if m not in materie_fatte]
                 materie_dafare = st.multiselect(
                     "Materie da fare",
                     options=available_dafare,
                     default=[m for m in current_dafare if m in available_dafare],
                 )
+
                 # obiettivi
                 obiettivi_opts = [
                     "Passare gli esami a prescindere dal voto",
@@ -720,16 +767,18 @@ with tab_student:
                     options=obiettivi_opts,
                     default=[o for o in current_ob if o in obiettivi_opts],
                 )
-                # dove mi vedo fra 5 anni
-                fr_default = (
-                    profile_data.get("future_role") if profile_data else FUTURE_ROLE_OPTIONS[0]
-                )
+
+                # ruolo futuro
+                fr_default = profile_data.get("future_role") if profile_data else FUTURE_ROLE_OPTIONS[0]
                 future_role = st.selectbox(
                     "Dove mi vedo fra 5 anni",
                     options=FUTURE_ROLE_OPTIONS,
-                    index=FUTURE_ROLE_OPTIONS.index(fr_default) if fr_default in FUTURE_ROLE_OPTIONS else 0,
+                    index=FUTURE_ROLE_OPTIONS.index(fr_default)
+                    if fr_default in FUTURE_ROLE_OPTIONS else 0,
                 )
+
                 invia = st.form_submit_button("💾 Salva profilo")
+
             if invia:
                 save_profile(
                     nickname_id,
@@ -742,7 +791,10 @@ with tab_student:
                     future_role,
                 )
                 st.success("Profilo salvato!")
-            # mostra gruppo se pubblicato
+
+            # ---------------------------------------------------------
+            # GRUPPO ASSEGNATO
+            # ---------------------------------------------------------
             published = st.session_state.get("published_sessions", {}).get(
                 st.session_state.get("student_session_id")
             )
