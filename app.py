@@ -377,13 +377,13 @@ def get_user_group(session_id: str, nickname_id: str):
 # Interfaccia utente
 # ----------------------------------------------------------------------------
 
-st.title("🎓 App Gruppi login-free")
-
-# Gestione cookies per sessione persistente (6 ore)
-from streamlit_cookies_manager import EncryptedCookieManager
+# 🔒 Cookie manager creato UNA SOLA VOLTA
 cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
 if not cookies.ready():
     st.stop()
+
+st.title("🎓 App Gruppi login-free")
+
 
 # Recupera eventuale sessione salvata nei cookie
 if not st.session_state.get("teacher_session_id") and cookies.get("teacher_session_id"):
