@@ -465,8 +465,8 @@ with tab_teacher:
         # LOBBY STUDENTI (aggiornamento automatico ogni 15s)
         # ---------------------------------------------------------
         st.subheader("Lobby studenti")
-        st.experimental_rerun()  # se vuoi forzare refresh manuale
-        # oppure, per un refresh automatico semplice:
+        st.rerun()  # se vuoi forzare refresh manuale
+            # oppure, per un refresh automatico semplice:
         st.markdown("<meta http-equiv='refresh' content='15'>", unsafe_allow_html=True)
 
 
