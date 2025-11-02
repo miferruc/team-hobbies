@@ -47,6 +47,17 @@ from datetime import timedelta
 st.sidebar.title("⚙️ Impostazioni sviluppatore")
 DEBUG_MODE = st.sidebar.checkbox("Attiva log debug", value=False)
 
+# Pulsante per cancellare manualmente tutti i cookie
+if st.sidebar.button("🧹 Cancella tutti i cookie"):
+    try:
+        cookies.clear()
+        cookies.save()
+        st.sidebar.success("Tutti i cookie sono stati rimossi.")
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Errore durante la rimozione: {e}")
+
+
 def log_debug(msg: str):
     """Mostra messaggi solo se debug attivo."""
     if DEBUG_MODE:
