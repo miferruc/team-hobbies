@@ -416,17 +416,37 @@ def publish_groups(session_id: str):
     st.success("Gruppi pubblicati!")
 
 # ---------------------------------------------------------
-# 🔄 RESET SESSIONE DOCENTE/STUDENTE
+# 🔄 RESET SESSIONE DOCENTE/STUDENTE (correzione persistente)
 # ---------------------------------------------------------
 def reset_teacher_session():
-    """Pulisce completamente session_state e cookie e forza il reload dell'app."""
-    for k in ["teacher_session_id", "teacher_group_size"]:
-        st.session_state.pop(k, None)
-    for k in ["teacher_session_id", "student_session_id", "student_nickname_id", "student_pin"]:
-        cookies.pop(k, None)
+    """Elimina sessione e cookie in modo definitivo, poi ricarica la pagina pulita."""
+    # 1. Cancella tutte le chiavi di stato relative
+    for k in list(st.session_state.keys()):
+        if k.startswith(("teacher_", "student_")) or k in ["published_sessions"]:
+            del st.session_state[k]
+
+    # 2. Rimuovi i cookie dalla memoria e salva
+    for k in [
+        "teacher_session_id", "teacher_group_size",
+        "student_session_id", "student_nickname_id",
+        "student_pin", "student_session_expiry",
+    ]:
+        try:
+            cookies.pop(k, None)
+        except Exception:
+            pass
     cookies.save()
-    st.experimental_set_query_params()  # rimuove eventuale session_id dall'URL
-    st.rerun()
+
+    # 3. Pulisci eventuali parametri URL
+    try:
+        st.experimental_set_query_params()
+    except Exception:
+        pass
+
+    # 4. Conferma visiva e reload
+    st.success("✅ Sessione azzerata. Ricarico interfaccia...")
+    st.stop()
+
 
 
 
