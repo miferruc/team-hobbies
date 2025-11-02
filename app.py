@@ -43,6 +43,16 @@ from supabase import create_client
 import qrcode
 from datetime import timedelta
 
+# Debug toggle (visibile in sidebar)
+st.sidebar.title("⚙️ Impostazioni sviluppatore")
+DEBUG_MODE = st.sidebar.checkbox("Attiva log debug", value=False)
+
+def log_debug(msg: str):
+    """Mostra messaggi solo se debug attivo."""
+    if DEBUG_MODE:
+        st.info(f"[DEBUG] {msg}")
+
+
 
 
 # ----------------------------------------------------------------------------
@@ -200,18 +210,36 @@ def save_profile(
     future_role: str,
 ):
     """Salva o aggiorna il profilo utente e aggiorna il nickname nella tabella 'nicknames'."""
+ 
+    start_time = datetime.now()
+    log_debug("Avvio salvataggio profilo...")
+
+
+
     # Costruisci record da salvare nel profilo. Non include il campo 'nickname', che viene
     # salvato nella tabella 'nicknames'.
+    def to_json_list(x):
+        """Converte sempre in stringa JSON per compatibilità DB."""
+        try:
+            return json.dumps(x or [], ensure_ascii=False)
+        except Exception:
+            return "[]"
+
+    now_str = datetime.now().isoformat()
+
     record = {
         "id": nickname_id,
         "approccio": approccio,
-        "hobby": hobby,
-        "materie_fatte": materie_fatte,
-        "materie_dafare": materie_dafare,
-        "obiettivi": obiettivi,
+        "hobby": to_json_list(hobby),
+        "materie_fatte": to_json_list(materie_fatte),
+        "materie_dafare": to_json_list(materie_dafare),
+        "obiettivi": to_json_list(obiettivi),
         "future_role": future_role,
-        "created_at": datetime.now().isoformat(),
+        "created_at": now_str,
+        "updated_at": now_str,
     }
+
+
     # Salva o aggiorna la tabella 'profiles'. Se alcune colonne non esistono,
     # prova a rimuoverle gradualmente.
     try:
@@ -240,6 +268,10 @@ def save_profile(
         supabase.table("nicknames").update({"nickname": alias}).eq("id", nickname_id).execute()
     except Exception as e:
         st.warning(f"Errore nell'aggiornamento del nickname: {e}")
+    
+    elapsed = (datetime.now() - start_time).total_seconds()
+    log_debug(f"Profilo salvato in {elapsed:.2f} s")
+
 
 
 def normalize_field(x) -> set:
@@ -290,6 +322,9 @@ def compute_similarity_ext(p1, p2, weights: dict) -> float:
 
 def create_groups_ext(session_id: str, group_size: int, weights: dict):
     """Crea gruppi in base ai pesi indicati."""
+    start_time = datetime.now()
+    log_debug("Avvio creazione gruppi...")
+
     # recupera tutti i nickname ID per la sessione
     nick_res = supabase.table("nicknames").select("id").eq("session_id", session_id).execute()
     nick_ids = [n["id"] for n in (nick_res.data or [])]
@@ -327,8 +362,17 @@ def create_groups_ext(session_id: str, group_size: int, weights: dict):
         avg_score[p["id"]] = sum(scores) / len(scores) if scores else 0.0
     # ordina studenti per punteggio decrescente
     students.sort(key=lambda x: avg_score[x["id"]], reverse=True)
-    # suddivide in gruppi
-    groups = [students[i : i + group_size] for i in range(0, len(students), group_size)]
+    # suddivide in gruppi con algoritmo round-robin serpentino
+    bucketed = []
+    for i in range(0, len(students), group_size):
+        chunk = students[i:i + group_size]
+        # alterna l’ordine ogni due blocchi per bilanciare profili simili
+        if (i // group_size) % 2 == 1:
+            chunk.reverse()
+        bucketed.extend(chunk)
+
+    groups = [bucketed[i:i + group_size] for i in range(0, len(bucketed), group_size)]
+
     # recupera tema della sessione
     sess_res = supabase.table("sessioni").select("tema").eq("id", session_id).execute()
     theme = sess_res.data[0]["tema"] if sess_res.data else "Generico"
@@ -355,6 +399,10 @@ def create_groups_ext(session_id: str, group_size: int, weights: dict):
     # marca come non pubblicati nello stato locale
     published = st.session_state.setdefault("published_sessions", {})
     published[session_id] = False
+
+    elapsed = (datetime.now() - start_time).total_seconds()
+    log_debug(f"Gruppi creati in {elapsed:.2f} s per {len(groups)} gruppi.")
+
 
 
 def publish_groups(session_id: str):
@@ -580,15 +628,32 @@ with tab_student:
     if not st.session_state.get("student_pin") and cookies.get("student_pin"):
         st.session_state["student_pin"] = cookies.get("student_pin")
 
+
     # ---------------------------------------------------------
-    # LETTURA QUERY PARAM
+    # LETTURA QUERY PARAM compatibile con versioni diverse di Streamlit
     # ---------------------------------------------------------
-    qp = getattr(st, "query_params", {})
+    qp = {}
+    try:
+        # Streamlit >= 1.30
+        qp_obj = getattr(st, "query_params", None)
+        if qp_obj:
+            qp = dict(qp_obj)
+    except Exception:
+        pass
+
+    if not qp:
+        try:
+            # Versioni precedenti
+            qp = st.experimental_get_query_params()
+        except Exception:
+            qp = {}
+
     qp_session = None
     if qp:
         qp_val = qp.get("session_id")
         if qp_val:
             qp_session = qp_val[0] if isinstance(qp_val, (list, tuple)) else qp_val
+
 
     # ---------------------------------------------------------
     # INPUT SESSIONE
@@ -608,7 +673,13 @@ with tab_student:
         st.session_state["student_session_id"] = session_id_input
         st.session_state.pop("student_nickname_id", None)
         st.session_state.pop("student_pin", None)
-        cookies.clear()
+        # Pulizia selettiva dei soli cookie dello studente
+        for key in ["student_session_id", "student_nickname_id", "student_pin", "student_session_expiry"]:
+            try:
+                cookies.pop(key, None)
+            except Exception:
+                pass
+
         cookies["student_session_id"] = session_id_input
         cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
         cookies.save()
@@ -683,14 +754,18 @@ with tab_student:
                 profile_data = None
 
             with st.form("stud_form_profilo"):
-                default_alias = (
-                    profile_data.get("nickname")
-                    if profile_data
-                    else st.session_state.get("student_pin", "")
-                )
+                # Recupera alias dal DB 'nicknames' per coerenza
+                alias_default = st.session_state.get("student_pin", "")
+                try:
+                    nick_row = supabase.table("nicknames").select("nickname, code4").eq("id", nickname_id).execute()
+                    if nick_row.data:
+                        alias_default = nick_row.data[0].get("nickname") or f"{nick_row.data[0].get('code4'):04d}"
+                except Exception:
+                    pass
+
                 alias = st.text_input(
                     "Alias (puoi usare il tuo nickname o un nome)",
-                    value=default_alias,
+                    value=alias_default,
                     max_chars=12,
                 )
 
