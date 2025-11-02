@@ -161,22 +161,52 @@ def get_ready_ids(session_id: str):
 
 def create_session_db(nome: str, materia: str, data_sessione, tema: str):
     """Crea una sessione nella tabella 'sessioni'."""
-    sid = generate_session_id()
+    import uuid
+
+    # 1️⃣ Genera ID univoco
+    sid = uuid.uuid4().hex[:8]
+
+    # 2️⃣ Normalizza data per compatibilità con Postgres
+    data_iso = (
+        data_sessione.strftime("%Y-%m-%d")
+        if hasattr(data_sessione, "strftime")
+        else str(data_sessione).replace("/", "-")[:10]
+    )
+
+    # 3️⃣ Crea link pubblico e record coerente
     link_pubblico = build_join_url(sid)
     record = {
         "id": sid,
         "nome": nome,
         "materia": materia,
-        "data": str(data_sessione),
+        "data": data_iso,
         "tema": tema,
-        "link_pubblico": link_pubblico,
+        "link_pubblico": str(link_pubblico),
         "creato_da": "public",
         "timestamp": datetime.now().isoformat(),
         "attiva": True,
         "chiusa_il": None,
         "pubblicato": False,
     }
-    supabase.table("sessioni").insert(record).execute()
+
+    # 4️⃣ Debug visivo
+    st.write("[DEBUG] insert sessioni →", record)
+
+    # 5️⃣ Inserimento con fallback automatico
+    try:
+        supabase.table("sessioni").insert(record).execute()
+        st.success(f"Sessione creata correttamente: {sid}")
+    except Exception as e:
+        if "pubblicato" in record:
+            st.warning(f"Colonna 'pubblicato' non trovata o tipo errato → {e}")
+            rec2 = {k: v for k, v in record.items() if k != "pubblicato"}
+            supabase.table("sessioni").insert(rec2).execute()
+            st.success(f"Sessione creata (senza 'pubblicato'): {sid}")
+        else:
+            st.error(f"Errore nell'inserimento della sessione: {e}")
+            raise
+
+
     return sid
 
 
