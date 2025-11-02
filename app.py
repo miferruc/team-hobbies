@@ -416,39 +416,48 @@ def publish_groups(session_id: str):
     st.success("Gruppi pubblicati!")
 
 # ---------------------------------------------------------
-# 🔄 RESET SESSIONE DOCENTE/STUDENTE (correzione persistente)
+# 🔄 RESET SESSIONE DOCENTE/STUDENTE (versione finale con scadenza forzata)
 # ---------------------------------------------------------
 def reset_teacher_session():
     """Elimina sessione e cookie in modo definitivo, poi ricarica la pagina pulita."""
+    import time
+
     # 1. Cancella tutte le chiavi di stato relative
     for k in list(st.session_state.keys()):
         if k.startswith(("teacher_", "student_")) or k in ["published_sessions"]:
             del st.session_state[k]
 
-    # 2. Rimuovi i cookie dalla memoria e salva
+    # 2. Forza scadenza cookie: Streamlit Cookies Manager usa LocalStorage
+    expire_time = (datetime.now() - timedelta(days=1)).isoformat()
     for k in [
         "teacher_session_id", "teacher_group_size",
         "student_session_id", "student_nickname_id",
         "student_pin", "student_session_expiry",
     ]:
         try:
+            cookies[k] = ""
+            cookies[f"{k}_expiry"] = expire_time
+            cookies.save()
             cookies.pop(k, None)
         except Exception:
             pass
+
     cookies.save()
 
-    # 3. Pulisci eventuali parametri URL
+    # 3. Log debug approfondito
+    log_debug("Cookie manager ripulito e scadenza forzata impostata.")
+    log_debug(f"Cookie effettivi dopo reset: {list(cookies.keys())}")
+
+    # 4. Pulisci URL e ferma tutto
     try:
         st.experimental_set_query_params()
     except Exception:
         pass
 
-    # 4. Conferma visiva e reload
     st.success("✅ Sessione azzerata. Ricarico interfaccia...")
-    log_debug("Tutti i cookie e session_state rimossi. Stop esecuzione.")
+    st.warning("Puoi ricaricare manualmente la pagina se il browser conserva ancora il cookie.")
+    time.sleep(0.5)
     st.stop()
-
-
 
 
 def get_user_group(session_id: str, nickname_id: str):
