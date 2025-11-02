@@ -415,6 +415,20 @@ def publish_groups(session_id: str):
     published[session_id] = True
     st.success("Gruppi pubblicati!")
 
+# ---------------------------------------------------------
+# 🔄 RESET SESSIONE DOCENTE/STUDENTE
+# ---------------------------------------------------------
+def reset_teacher_session():
+    """Pulisce completamente session_state e cookie e forza il reload dell'app."""
+    for k in ["teacher_session_id", "teacher_group_size"]:
+        st.session_state.pop(k, None)
+    for k in ["teacher_session_id", "student_session_id", "student_nickname_id", "student_pin"]:
+        cookies.pop(k, None)
+    cookies.save()
+    st.experimental_set_query_params()  # rimuove eventuale session_id dall'URL
+    st.rerun()
+
+
 
 def get_user_group(session_id: str, nickname_id: str):
     """Ritorna il gruppo in cui si trova il nickname, oppure None."""
@@ -573,11 +587,8 @@ with tab_teacher:
         if col2.button("📢 Pubblica gruppi", key="doc_pubblica_gruppi"):
             publish_groups(sid)
         if col3.button("♻️ Nuova sessione", key="doc_reset_session"):
-            st.session_state.pop("teacher_session_id", None)
-            st.session_state.pop("teacher_group_size", None)
-            cookies.pop("teacher_session_id", None)
-            cookies.save()
-            st.rerun()
+            reset_teacher_session()
+
 
         st.divider()
 
@@ -596,11 +607,8 @@ with tab_teacher:
                     supabase.table("nicknames").delete().eq("session_id", sid).execute()
                     supabase.table("sessioni").delete().eq("id", sid).execute()
                     st.success(f"Sessione {sid} cancellata con successo.")
-                    st.session_state.pop("teacher_session_id", None)
-                    st.session_state.pop("teacher_group_size", None)
-                    cookies.pop("teacher_session_id", None)
-                    cookies.save()
-                    st.rerun()
+                    reset_teacher_session()
+
                 except Exception as e:
                     st.error(f"Errore durante la cancellazione: {e}")
 
