@@ -62,9 +62,15 @@ def log_debug(msg: str):
 
 # Configura la pagina Streamlit
 st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
-cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
+cookies = EncryptedCookieManager(prefix="istudy_", password="...")
+
+# evita loop infinito se i cookie vengono cancellati manualmente
 if not cookies.ready():
-    st.stop()
+    st.warning("Cookie manager in inizializzazione… ricarica automatica.")
+    st.experimental_set_query_params()  # pulisce eventuali parametri URL
+    st.session_state.clear()
+    st.rerun()
+
 # ---------------------------------------------------------
 # 🔧 Pulsante debug: cancella manualmente TUTTI i cookie
 # ---------------------------------------------------------
