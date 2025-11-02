@@ -445,6 +445,7 @@ def reset_teacher_session():
 
     # 4. Conferma visiva e reload
     st.success("✅ Sessione azzerata. Ricarico interfaccia...")
+    log_debug("Tutti i cookie e session_state rimossi. Stop esecuzione.")
     st.stop()
 
 
@@ -471,9 +472,17 @@ def get_user_group(session_id: str, nickname_id: str):
 st.title("🎓 App Gruppi login-free")
 
 
-# Recupera eventuale sessione salvata nei cookie
-if not st.session_state.get("teacher_session_id") and cookies.get("teacher_session_id"):
-    st.session_state["teacher_session_id"] = cookies.get("teacher_session_id")
+# Recupera eventuale sessione salvata nei cookie (con controllo debug)
+teacher_cookie = cookies.get("teacher_session_id")
+if teacher_cookie and teacher_cookie.strip():
+    if DEBUG_MODE:
+        st.sidebar.write(f"[DEBUG] Rilevato cookie docente attivo → {teacher_cookie}")
+    if not st.session_state.get("teacher_session_id"):
+        st.session_state["teacher_session_id"] = teacher_cookie
+else:
+    if DEBUG_MODE:
+        st.sidebar.write("[DEBUG] Nessun cookie docente attivo.")
+
 
 
 
