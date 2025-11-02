@@ -164,6 +164,7 @@ def create_session_db(nome: str, materia: str, data_sessione, tema: str):
         "timestamp": datetime.now().isoformat(),
         "attiva": True,
         "chiusa_il": None,
+        "pubblicato": False,
     }
     supabase.table("sessioni").insert(record).execute()
     return sid
@@ -357,7 +358,11 @@ def create_groups_ext(session_id: str, group_size: int, weights: dict):
 
 
 def publish_groups(session_id: str):
-    """Segna i gruppi come pubblicati nello stato locale."""
+    """Segna i gruppi come pubblicati sia su DB sia nello stato locale."""
+    try:
+        supabase.table("sessioni").update({"pubblicato": True}).eq("id", session_id).execute()
+    except Exception as e:
+        st.warning(f"Errore durante la pubblicazione su DB: {e}")
     published = st.session_state.setdefault("published_sessions", {})
     published[session_id] = True
     st.success("Gruppi pubblicati!")
@@ -385,8 +390,11 @@ st.title("🎓 App Gruppi login-free")
 
 
 # Recupera eventuale sessione salvata nei cookie
-if not st.session_state.get("teacher_session_id") and cookies.get("teacher_session_id"):
-    st.session_state["teacher_session_id"] = cookies.get("teacher_session_id")
+if not st.session_state.get("teacher_session_id"):
+    v = get_cookie("teacher_session_id")
+    if v:
+        st.session_state["teacher_session_id"] = v
+
 
 # Tab di navigazione principale: Docente vs Studente
 tab_teacher, tab_student = st.tabs(["👩‍🏫 Docente", "👤 Studente"])
@@ -783,11 +791,19 @@ with tab_student:
             # ---------------------------------------------------------
             # GRUPPO ASSEGNATO
             # ---------------------------------------------------------
-            published = st.session_state.get("published_sessions", {}).get(
-                st.session_state.get("student_session_id")
-            )
+            # Verifica pubblicazione su DB con fallback allo stato locale
+            sid_curr = st.session_state.get("student_session_id")
+            pub_db = False
+            try:
+                r = supabase.table("sessioni").select("pubblicato").eq("id", sid_curr).execute()
+                pub_db = bool(r.data and r.data[0].get("pubblicato"))
+            except Exception:
+                pub_db = False
+
+            published = pub_db or st.session_state.get("published_sessions", {}).get(sid_curr)
             if published:
-                g = get_user_group(st.session_state.get("student_session_id"), nickname_id)
+                g = get_user_group(sid_curr, nickname_id)
+
                 if g:
                     st.subheader("Il tuo gruppo")
                     st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**")
