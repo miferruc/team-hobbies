@@ -438,10 +438,9 @@ st.title("🎓 App Gruppi login-free")
 
 
 # Recupera eventuale sessione salvata nei cookie
-if not st.session_state.get("teacher_session_id"):
-    v = get_cookie("teacher_session_id")
-    if v:
-        st.session_state["teacher_session_id"] = v
+if not st.session_state.get("teacher_session_id") and cookies.get("teacher_session_id"):
+    st.session_state["teacher_session_id"] = cookies.get("teacher_session_id")
+
 
 
 # Tab di navigazione principale: Docente vs Studente
