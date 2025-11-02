@@ -64,12 +64,17 @@ def log_debug(msg: str):
 st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
 cookies = EncryptedCookieManager(prefix="istudy_", password="...")
 
-# evita loop infinito se i cookie vengono cancellati manualmente
-if not cookies.ready():
-    st.warning("Cookie manager in inizializzazione… ricarica automatica.")
-    st.experimental_set_query_params()  # pulisce eventuali parametri URL
-    st.session_state.clear()
-    st.rerun()
+# Gestione sicura anche se i cookie sono stati cancellati manualmente
+try:
+    ready = cookies.ready()
+except Exception:
+    ready = False
+
+if not ready:
+    st.warning("Cookie manager inizializzato da zero. Procedo senza bloccare.")
+    # forza re-inizializzazione base
+    cookies._cookies = {}
+    cookies.save()
 
 # ---------------------------------------------------------
 # 🔧 Pulsante debug: cancella manualmente TUTTI i cookie
