@@ -476,7 +476,7 @@ def reset_teacher_session():
     # 4. Log e reload controllato
     log_debug("Cookie e session_state rimossi. Ricarico interfaccia.")
     st.success("✅ Sessione azzerata. Ricarico interfaccia...")
-    st.experimental_rerun()
+    st.rerun()
 
 
 
