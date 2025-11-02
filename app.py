@@ -75,6 +75,28 @@ st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="c
 cookies = EncryptedCookieManager(prefix="istudy_", password="session_key")
 if not cookies.ready():
     st.stop()
+# ---------------------------------------------------------
+# 🔧 Pulsante debug: cancella manualmente TUTTI i cookie
+# ---------------------------------------------------------
+def manual_cookie_reset():
+    try:
+        cookies.clear()     # rimuove tutte le chiavi del prefisso 'istudy_'
+        cookies.save()      # SALVA UNA SOLA VOLTA per evitare DuplicateElementKey
+        st.sidebar.success("Tutti i cookie sono stati rimossi.")
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Errore durante la rimozione: {e}")
+
+# Aggiunge il pulsante in sidebar
+st.sidebar.button("🧹 Cancella tutti i cookie", on_click=manual_cookie_reset)
+
+# (facoltativo) Stato attuale cookie per debug
+if 'DEBUG_MODE' in globals() and DEBUG_MODE:
+    try:
+        st.sidebar.write("[DEBUG] Cookie attivi:", list(cookies.keys()))
+    except Exception:
+        pass
+
 
 
 # Connetti a Supabase con chiave di servizio o anonima
