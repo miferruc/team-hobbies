@@ -582,6 +582,70 @@ with tab_teacher:
 
         st.divider()
 
+                # ---------------------------------------------------------
+        # GESTIONE SESSIONE AVANZATA
+        # ---------------------------------------------------------
+        st.divider()
+        st.subheader("Gestione avanzata sessione")
+
+        # 🗑️ CANCELLA SESSIONE
+        if st.button("🗑️ Cancella sessione", key="doc_delete_session"):
+            confirm = st.radio("Sei sicuro di voler cancellare questa sessione?", ["No", "Sì"], key="confirm_delete")
+            if confirm == "Sì":
+                try:
+                    supabase.table("gruppi").delete().eq("sessione_id", sid).execute()
+                    supabase.table("nicknames").delete().eq("session_id", sid).execute()
+                    supabase.table("sessioni").delete().eq("id", sid).execute()
+                    st.success(f"Sessione {sid} cancellata con successo.")
+                    st.session_state.pop("teacher_session_id", None)
+                    st.session_state.pop("teacher_group_size", None)
+                    cookies.pop("teacher_session_id", None)
+                    cookies.save()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore durante la cancellazione: {e}")
+
+        # 📤 ESPORTA DATI SESSIONE
+        import pandas as pd
+
+        if st.button("📤 Esporta dati sessione in CSV", key="doc_export_csv"):
+            try:
+                nick_res = supabase.table("nicknames").select("id, code4, nickname, session_id").eq("session_id", sid).execute()
+                prof_res = supabase.table("profiles").select("*").in_("id", [n["id"] for n in nick_res.data or []]).execute()
+                group_res = supabase.table("gruppi").select("sessione_id, nome_gruppo, membri").eq("sessione_id", sid).execute()
+
+                df_nick = pd.DataFrame(nick_res.data or [])
+                df_prof = pd.DataFrame(prof_res.data or [])
+                df_group = pd.DataFrame(group_res.data or [])
+
+                if not df_prof.empty and not df_nick.empty:
+                    df_merge = df_nick.merge(df_prof, on="id", how="left")
+                else:
+                    df_merge = df_nick
+
+                csv_buf = BytesIO()
+                df_merge.to_csv(csv_buf, index=False, encoding="utf-8-sig")
+                csv_buf.seek(0)
+                st.download_button(
+                    label="📄 Scarica CSV (studenti + profili)",
+                    data=csv_buf,
+                    file_name=f"dati_sessione_{sid}.csv",
+                    mime="text/csv",
+                )
+
+                if not df_group.empty:
+                    csv_buf2 = BytesIO()
+                    df_group.to_csv(csv_buf2, index=False, encoding="utf-8-sig")
+                    csv_buf2.seek(0)
+                    st.download_button(
+                        label="📄 Scarica CSV (gruppi)",
+                        data=csv_buf2,
+                        file_name=f"gruppi_sessione_{sid}.csv",
+                        mime="text/csv",
+                    )
+            except Exception as e:
+                st.error(f"Errore durante l'esportazione CSV: {e}")
+
         # ---------------------------------------------------------
         # GRUPPI CREATI
         # ---------------------------------------------------------
