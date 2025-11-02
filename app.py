@@ -62,19 +62,23 @@ def log_debug(msg: str):
 
 # Configura la pagina Streamlit
 st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
-cookies = EncryptedCookieManager(prefix="istudy_", password="...")
+from streamlit_cookies_manager import EncryptedCookieManager
 
-# Gestione sicura anche se i cookie sono stati cancellati manualmente
 try:
-    ready = cookies.ready()
-except Exception:
-    ready = False
-
-if not ready:
-    st.warning("Cookie manager inizializzato da zero. Procedo senza bloccare.")
-    # forza re-inizializzazione base
-    cookies._cookies = {}
-    cookies.save()
+    cookies = EncryptedCookieManager(prefix="istudy_", password="...")
+    if not cookies.ready():
+        st.warning("Cookie manager non pronto → avvio in modalità anonima.")
+        cookies._cookies = {}
+        cookies.save()
+except Exception as e:
+    st.error(f"Cookie manager non inizializzabile: {e}")
+    # fallback totale → app comunque avviabile
+    class DummyCookie:
+        def get(self, *_): return None
+        def set(self, *_): pass
+        def save(self): pass
+        def clear(self): pass
+    cookies = DummyCookie()
 
 # ---------------------------------------------------------
 # 🔧 Pulsante debug: cancella manualmente TUTTI i cookie
