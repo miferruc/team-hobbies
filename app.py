@@ -352,38 +352,36 @@ def save_profile(
 
     # Salva o aggiorna la tabella 'profiles'. Se alcune colonne non esistono,
     # prova a rimuoverle gradualmente.
+       # ✅ STEP 2 — upsert atomico + verifica persistenza
     try:
-        existing = supabase.table("profiles").select("id").eq("id", nickname_id).execute()
-        if existing.data:
-            try:
-                supabase.table("profiles").update(record).eq("id", nickname_id).execute()
-            except Exception as e:
-                invalid = []
-                for key in list(record.keys()):
-                    try:
-                        supabase.table("profiles").update({key: record[key]}).eq("id", nickname_id).execute()
-                    except Exception:
-                        invalid.append(key)
-                for k in invalid:
-                    record.pop(k, None)
-                log_debug(f"Campi rimossi profilo per compatibilità: {invalid}")
-                supabase.table("profiles").update(record).eq("id", nickname_id).execute()
-        else:
-            try:
-                supabase.table("profiles").insert(record).execute()
-            except Exception:
-                invalid = []
-                for key in list(record.keys()):
-                    try:
-                        supabase.table("profiles").insert({key: record[key]}).execute()
-                    except Exception:
-                        invalid.append(key)
-                for k in invalid:
-                    record.pop(k, None)
-                log_debug(f"Campi rimossi profilo (insert) per compatibilità: {invalid}")
-                supabase.table("profiles").insert(record).execute()
+        # upsert per creare/aggiornare in un'unica chiamata
+        supabase.table("profiles").upsert(record, on_conflict="id").execute()
+
+        # verifica: rilegge i campi chiave appena salvati
+        chk = (
+            supabase.table("profiles")
+            .select("id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role")
+            .eq("id", nickname_id)
+            .execute()
+        )
+        saved = (chk.data or [{}])[0]
+
+        # almeno uno dei campi principali deve risultare valorizzato
+        persisted = any([
+            bool(saved.get("approccio")),
+            bool(saved.get("hobby")),
+            bool(saved.get("materie_fatte")),
+            bool(saved.get("materie_dafare")),
+            bool(saved.get("obiettivi")),
+            bool(saved.get("future_role")),
+        ])
+        if not persisted:
+            raise RuntimeError("Profilo non persistito. Controlla lo schema della tabella 'profiles'.")
+
     except Exception as e:
-        st.warning(f"Errore nel salvataggio del profilo: {e}")
+        # fallimento esplicito → verrà intercettato dal try/except dell’UI
+        raise
+
 
     # Aggiorna l'alias nel record nickname
     try:
@@ -618,14 +616,31 @@ def reset_student_session():
 
 def get_user_group(session_id: str, nickname_id: str):
     """Ritorna il gruppo in cui si trova il nickname, oppure None."""
+        # ✅ STEP 3 — decodifica robusta del campo 'membri' salvato come JSON
     try:
         res = supabase.table("gruppi").select("nome_gruppo, membri").eq("sessione_id", session_id).execute()
         for g in res.data or []:
-            if nickname_id in (g.get("membri") or []):
+            raw = g.get("membri")
+            # normalizza: se stringa JSON → lista; se None → lista vuota
+            if isinstance(raw, str):
+                try:
+                    members = json.loads(raw)
+                except Exception:
+                    members = []
+            elif isinstance(raw, list):
+                members = raw
+            else:
+                members = []
+
+            # mantieni 'membri' come lista per il resto dell'app
+            g["membri"] = members
+
+            if nickname_id in members:
                 return g
     except Exception:
         pass
     return None
+
 
 
 # ----------------------------------------------------------------------------
@@ -866,20 +881,45 @@ with tab_teacher:
         if not gruppi_creati:
             st.info("Nessun gruppo ancora creato.")
         else:
-            all_ids = list({mid for g in gruppi_creati for mid in (g.get("membri") or [])})
+            # ✅ Normalizza 'membri' a lista
+            for g in gruppi_creati:
+                raw = g.get("membri")
+                if isinstance(raw, str):
+                    try:
+                        g["membri"] = json.loads(raw)
+                    except Exception:
+                        g["membri"] = []
+                elif isinstance(raw, list):
+                    g["membri"] = raw
+                else:
+                    g["membri"] = []
+
+            # Mappa alias per gli ID membri
+            all_ids = list({mid for g in gruppi_creati for mid in g["membri"]})
             alias_map = {}
             if all_ids:
                 try:
-                    nick_res = supabase.table("nicknames").select("id, code4, nickname").in_("id", all_ids).execute()
+                    nick_res = (
+                        supabase.table("nicknames")
+                        .select("id, code4, nickname")
+                        .in_("id", all_ids)
+                        .execute()
+                    )
                     for r in nick_res.data or []:
                         pin = r.get("code4")
-                        alias_map[r["id"]] = r.get("nickname") or f"{pin:04d}"
+                        alias_map[r["id"]] = r.get("nickname") or (f"{pin:04d}" if isinstance(pin, int) else "")
                 except Exception:
                     pass
+
+            # Rendering elenco gruppi
             for g in gruppi_creati:
                 st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**")
-                members_names = [alias_map.get(mid, mid[:4]) for mid in (g.get("membri") or [])]
-                st.write(", ".join(members_names))
+                members_names = [
+                    alias_map.get(mid, (mid[:4] if isinstance(mid, str) else str(mid)))
+                    for mid in g["membri"]
+                ]
+                st.write(", ".join(members_names) if members_names else "—")
+
 
 with tab_student:
     """
@@ -1124,18 +1164,31 @@ with tab_student:
 
                 invia = st.form_submit_button("💾 Salva profilo")
 
-            if invia:
-                save_profile(
-                    nickname_id,
-                    alias or st.session_state.get("student_pin", ""),
-                    approccio,
-                    hobbies,
-                    materie_fatte,
-                    materie_dafare,
-                    obiettivi_sel,
-                    future_role,
-                )
-                st.success("Profilo salvato!")
+            # ✅ STEP 1 — Salvataggio profilo con validazioni e gestione errori
+                if invia:
+                    # 1) Controlli minimi
+                    if not st.session_state.get("student_nickname_id"):
+                        st.error("ID nickname mancante. Conferma il nickname nella scheda precedente e riprova.")
+                    elif supabase is None:
+                        st.error("Connessione al database non disponibile. Controlla le credenziali Supabase.")
+                    else:
+                        try:
+                            # 2) Salvataggio
+                            save_profile(
+                                nickname_id,
+                                alias or st.session_state.get("student_pin", ""),
+                                approccio,
+                                hobbies,
+                                materie_fatte,
+                                materie_dafare,
+                                obiettivi_sel,
+                                future_role,
+                            )
+                            st.success("Profilo salvato correttamente.")
+                        except Exception as e:
+                            # 3) Errore esplicito
+                            st.error(f"Errore durante il salvataggio del profilo: {e}")
+
 
             # ---------------------------------------------------------
             # GRUPPO ASSEGNATO
