@@ -586,6 +586,34 @@ def reset_teacher_session():
     st.success("✅ Sessione azzerata. Ricarico interfaccia...")
     st.rerun()
 
+# ---------------------------------------------------------
+# 🔄 RESET SESSIONE STUDENTE (sicuro e coerente)
+# ---------------------------------------------------------
+def reset_student_session():
+    """Ripulisce cookie e stato studente evitando loop e incoerenze."""
+    # 🚩 Flag temporaneo per bloccare re-idratazione automatica al prossimo rerun
+    st.session_state["_student_reset_in_progress"] = True
+
+    # 1️⃣ Cancella chiavi di stato relative allo studente
+    for k in list(st.session_state.keys()):
+        if k.startswith("student_"):
+            del st.session_state[k]
+
+    # 2️⃣ Cancella cookie studente
+    for key in ["student_session_id", "student_nickname_id", "student_pin", "student_session_expiry"]:
+        cookies.pop(key, None)
+    cookies.save()
+
+    # 3️⃣ Pulisci parametri URL
+    try:
+        st.experimental_set_query_params()
+    except Exception:
+        pass
+
+    # 4️⃣ Log e reload controllato
+    log_debug("Cookie e session_state studente rimossi. Ricarico interfaccia.")
+    st.success("✅ Sessione studente azzerata. Ricarico interfaccia...")
+    st.rerun()
 
 
 def get_user_group(session_id: str, nickname_id: str):
