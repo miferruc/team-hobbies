@@ -636,28 +636,24 @@ def get_user_group(session_id: str, nickname_id: str):
 
 st.title("🎓 App Gruppi login-free")
 
-
-# 🧠 Re-idratazione controllata del docente
-teacher_cookie = cookies.get("teacher_session_id")
-
-# Flag di reset: se impostato da reset_teacher_session(), evita la ricarica automatica
-if not st.session_state.get("_teacher_reset_in_progress"):
-    if teacher_cookie and teacher_cookie.strip():
+# 🧠 Ripresa sessione docente SOLO su richiesta
+def resume_teacher_from_cookie():
+    """Riprende la sessione docente da cookie in modo esplicito."""
+    if st.session_state.get("_teacher_reset_in_progress"):
+        # Evita ripristini durante/ subito dopo il reset
+        st.session_state.pop("_teacher_reset_in_progress", None)
         if DEBUG_MODE:
-            st.sidebar.write(f"[DEBUG] Cookie docente rilevato → {teacher_cookie}")
-        # Carica cookie solo se non c'è già una sessione attiva
-        if not st.session_state.get("teacher_session_id"):
-            st.session_state["teacher_session_id"] = teacher_cookie
+            st.sidebar.write("[DEBUG] Reset docente in corso: skip resume.")
+        return
+    tc = cookies.get("teacher_session_id")
+    if tc and tc.strip():
+        st.session_state["teacher_session_id"] = tc
+        st.sidebar.success(f"Ripresa sessione: {tc}")
+        st.rerun()
     else:
-        if DEBUG_MODE:
-            st.sidebar.write("[DEBUG] Nessun cookie docente attivo.")
-else:
-    # Durante il reset evita il ripristino automatico
-    st.session_state.pop("_teacher_reset_in_progress", None)
-    if DEBUG_MODE:
-        st.sidebar.write("[DEBUG] Reset docente in corso: skip re-idratazione.")
+        st.sidebar.info("Nessuna sessione salvata nei cookie.")
 
-
+st.sidebar.button("↩️ Riprendi sessione salvata", on_click=resume_teacher_from_cookie)
 
 
 
