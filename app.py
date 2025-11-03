@@ -43,6 +43,11 @@ from supabase import create_client
 import qrcode
 from datetime import timedelta
 
+# 🧭 Config pagina — deve essere la PRIMA chiamata Streamlit
+st.set_page_config(page_title="Gruppi login-free", page_icon="📚", layout="centered")
+
+
+
 # Debug toggle (visibile in sidebar)
 st.sidebar.title("⚙️ Impostazioni sviluppatore")
 DEBUG_MODE = st.sidebar.checkbox("Attiva log debug", value=False)
@@ -56,13 +61,7 @@ def log_debug(msg: str):
 
 
 
-# ----------------------------------------------------------------------------
-# Configurazione e connessione
-# ----------------------------------------------------------------------------
 
-# Configura la pagina Streamlit
-st.set_page_config(page_title="Gruppi login‑free", page_icon="📚", layout="centered")
-from streamlit_cookies_manager import EncryptedCookieManager
 
 # inizializzazione sicura che non blocca mai l'app
 try:
