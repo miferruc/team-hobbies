@@ -328,59 +328,67 @@ def save_profile(
 
     # Costruisci record da salvare nel profilo. Non include il campo 'nickname', che viene
     # salvato nella tabella 'nicknames'.
-    def to_json_list(x):
-        """Converte sempre in stringa JSON per compatibilità DB."""
-        try:
-            return json.dumps(x or [], ensure_ascii=False)
-        except Exception:
-            return "[]"
+    def to_list(x):
+        """Garantisce una lista nativa; evita stringhe JSON nel DB."""
+        if x is None:
+            return []
+        if isinstance(x, (list, tuple, set)):
+            return list(x)
+        return [str(x)]
+
 
     now_str = datetime.now().isoformat()
 
     record = {
         "id": nickname_id,
         "approccio": approccio,
-        "hobby": to_json_list(hobby),
-        "materie_fatte": to_json_list(materie_fatte),
-        "materie_dafare": to_json_list(materie_dafare),
-        "obiettivi": to_json_list(obiettivi),
+        "hobby": to_list(hobby),                   # ✅ liste native
+        "materie_fatte": to_list(materie_fatte),   # ✅ liste native
+        "materie_dafare": to_list(materie_dafare), # ✅ liste native
+        "obiettivi": to_list(obiettivi),           # ✅ liste native
         "future_role": future_role,
         "created_at": now_str,
         "updated_at": now_str,
     }
 
 
-    # Salva o aggiorna la tabella 'profiles'. Se alcune colonne non esistono,
-    # prova a rimuoverle gradualmente.
-       # ✅ STEP 2 — upsert atomico + verifica persistenza
+
+    # Salva o aggiorna la tabella 'profiles' con fallback su colonne opzionali
     try:
-        # upsert per creare/aggiornare in un'unica chiamata
+        # upsert base
         supabase.table("profiles").upsert(record, on_conflict="id").execute()
+    except Exception as e1:
+        # 1° fallback: rimuovi 'future_role' se non presente nello schema
+        rec2 = dict(record)
+        rec2.pop("future_role", None)
+        try:
+            supabase.table("profiles").upsert(rec2, on_conflict="id").execute()
+        except Exception as e2:
+            # 2° fallback: rimuovi anche timestamp se lo schema non li prevede
+            rec3 = dict(rec2)
+            rec3.pop("created_at", None)
+            rec3.pop("updated_at", None)
+            supabase.table("profiles").upsert(rec3, on_conflict="id").execute()
 
-        # verifica: rilegge i campi chiave appena salvati
-        chk = (
-            supabase.table("profiles")
-            .select("id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role")
-            .eq("id", nickname_id)
-            .execute()
-        )
-        saved = (chk.data or [{}])[0]
+    # verifica: rilegge i campi chiave appena salvati
+    chk = (
+        supabase.table("profiles")
+        .select("id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role")
+        .eq("id", nickname_id)
+        .execute()
+    )
+    saved = (chk.data or [{}])[0]
+    persisted = any([
+        bool(saved.get("approccio")),
+        bool(saved.get("hobby")),
+        bool(saved.get("materie_fatte")),
+        bool(saved.get("materie_dafare")),
+        bool(saved.get("obiettivi")),
+        bool(saved.get("future_role")),
+    ])
+    if not persisted:
+        raise RuntimeError("Profilo non persistito. Controlla lo schema della tabella 'profiles'.")
 
-        # almeno uno dei campi principali deve risultare valorizzato
-        persisted = any([
-            bool(saved.get("approccio")),
-            bool(saved.get("hobby")),
-            bool(saved.get("materie_fatte")),
-            bool(saved.get("materie_dafare")),
-            bool(saved.get("obiettivi")),
-            bool(saved.get("future_role")),
-        ])
-        if not persisted:
-            raise RuntimeError("Profilo non persistito. Controlla lo schema della tabella 'profiles'.")
-
-    except Exception as e:
-        # fallimento esplicito → verrà intercettato dal try/except dell’UI
-        raise
 
 
     # Aggiorna l'alias nel record nickname
@@ -1185,6 +1193,9 @@ with tab_student:
                                 future_role,
                             )
                             st.success("Profilo salvato correttamente.")
+                            st.rerun()  # forza il reload per ricaricare i default dal DB
+
+
                         except Exception as e:
                             # 3) Errore esplicito
                             st.error(f"Errore durante il salvataggio del profilo: {e}")
