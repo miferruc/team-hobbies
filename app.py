@@ -606,16 +606,26 @@ def get_user_group(session_id: str, nickname_id: str):
 st.title("🎓 App Gruppi login-free")
 
 
-# Recupera eventuale sessione salvata nei cookie (con controllo debug)
+# 🧠 Re-idratazione controllata del docente
 teacher_cookie = cookies.get("teacher_session_id")
-if teacher_cookie and teacher_cookie.strip():
-    if DEBUG_MODE:
-        st.sidebar.write(f"[DEBUG] Rilevato cookie docente attivo → {teacher_cookie}")
-    if not st.session_state.get("teacher_session_id"):
-        st.session_state["teacher_session_id"] = teacher_cookie
+
+# Flag di reset: se impostato da reset_teacher_session(), evita la ricarica automatica
+if not st.session_state.get("_teacher_reset_in_progress"):
+    if teacher_cookie and teacher_cookie.strip():
+        if DEBUG_MODE:
+            st.sidebar.write(f"[DEBUG] Cookie docente rilevato → {teacher_cookie}")
+        # Carica cookie solo se non c'è già una sessione attiva
+        if not st.session_state.get("teacher_session_id"):
+            st.session_state["teacher_session_id"] = teacher_cookie
+    else:
+        if DEBUG_MODE:
+            st.sidebar.write("[DEBUG] Nessun cookie docente attivo.")
 else:
+    # Durante il reset evita il ripristino automatico
+    st.session_state.pop("_teacher_reset_in_progress", None)
     if DEBUG_MODE:
-        st.sidebar.write("[DEBUG] Nessun cookie docente attivo.")
+        st.sidebar.write("[DEBUG] Reset docente in corso: skip re-idratazione.")
+
 
 
 
