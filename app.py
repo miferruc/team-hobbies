@@ -354,21 +354,72 @@ def save_profile(
 
 
     # Salva o aggiorna la tabella 'profiles' con fallback su colonne opzionali
+    # Strategia: prima controllo se esiste la riga -> UPDATE, altrimenti INSERT.
+    # Così evitiamo l'on_conflict="id" che richiede un vincolo UNIQUE su 'id'.
     try:
-        # upsert base
-        supabase.table("profiles").upsert(record, on_conflict="id").execute()
+        exists_res = (
+            supabase.table("profiles")
+            .select("id")
+            .eq("id", nickname_id)
+            .limit(1)
+            .execute()
+        )
+        has_row = bool(exists_res.data)
+        log_debug(f"Esistenza profilo → {has_row}")
+    except Exception as e0:
+        log_debug(f"SELECT esistenza profilo fallita: {e0}")
+        has_row = False  # fallback prudente: tenteremo INSERT
+
+    def _apply_write(rec: dict):
+        """Esegue UPDATE se la riga esiste, altrimenti INSERT."""
+        if has_row:
+            payload = dict(rec)
+            payload.pop("id", None)  # l'ID non si aggiorna
+            return supabase.table("profiles").update(payload).eq("id", nickname_id).execute()
+        else:
+            return supabase.table("profiles").insert(rec).execute()
+
+    try:
+        # Tentativo base: schema completo
+        _apply_write(record)
     except Exception as e1:
-        # 1° fallback: rimuovi 'future_role' se non presente nello schema
+        log_debug(f"WRITE base fallito: {e1}")
+
+        # 1° fallback: rimuovi 'future_role' se la colonna non esiste
         rec2 = dict(record)
         rec2.pop("future_role", None)
         try:
-            supabase.table("profiles").upsert(rec2, on_conflict="id").execute()
+            _apply_write(rec2)
         except Exception as e2:
-            # 2° fallback: rimuovi anche timestamp se lo schema non li prevede
+            log_debug(f"WRITE senza 'future_role' fallito: {e2}")
+
+            # 2° fallback: rimuovi i timestamp se non previsti a schema
             rec3 = dict(rec2)
             rec3.pop("created_at", None)
             rec3.pop("updated_at", None)
-            supabase.table("profiles").upsert(rec3, on_conflict="id").execute()
+            try:
+                _apply_write(rec3)
+            except Exception as e3:
+                log_debug(f"WRITE senza timestamp fallito: {e3}")
+
+                # 3° fallback: colonne TEXT → serializza le liste in stringhe JSON
+                import json  # locale, evita dipendenze globali
+
+                def _as_json_str(v):
+                    try:
+                        return json.dumps(v, ensure_ascii=False)
+                    except Exception:
+                        return "[]"
+
+                rec4 = dict(rec3)
+                for k in ["hobby", "materie_fatte", "materie_dafare", "obiettivi"]:
+                    if k in rec4 and isinstance(rec4[k], list):
+                        rec4[k] = _as_json_str(rec4[k])
+                log_debug("WRITE con serializzazione JSON per colonne TEXT → insert/update(rec4)")
+                _apply_write(rec4)
+
+
+
 
     # verifica: rilegge i campi chiave appena salvati
     chk = (
@@ -386,6 +437,8 @@ def save_profile(
         bool(saved.get("obiettivi")),
         bool(saved.get("future_role")),
     ])
+    log_debug(f"Persisted? {persisted}")
+
     if not persisted:
         raise RuntimeError("Profilo non persistito. Controlla lo schema della tabella 'profiles'.")
 
