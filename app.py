@@ -74,21 +74,40 @@ try:
     except Exception:
         ready = False
 
+    # 🛑 Gate inizializzazione cookie: nessuna manipolazione prima del round-trip
     if not ready:
-        st.sidebar.warning("Cookie manager re-inizializzato (nessun cookie trovato).")
-        # forza creazione base
-        cookies._cookies = {}
-        cookies.save()
+        st.sidebar.info("Inizializzo i cookie… ricarico l'interfaccia.")
+        st.stop()
+
 
 except Exception as e:
     st.sidebar.error(f"Cookie manager non inizializzabile: {e}")
-    class DummyCookie:
-        def get(self, *_): return None
-        def set(self, *_): pass
-        def save(self): pass
-        def clear(self): pass
-        def pop(self, *_): pass
+        # 🧩 DummyCookie compatibile con dict per evitare crash in fallback
+    class DummyCookie(dict):
+        """Sostituto sicuro quando il cookie manager fallisce.
+        Supporta get/set/item per compatibilità completa.
+        """
+        def __getitem__(self, key):
+            return self.get(key)
+
+        def __setitem__(self, key, value):
+            # ignora ma evita errori
+            super().update({key: value})
+
+        def get(self, key, default=None):
+            return super().get(key, default)
+
+        def save(self):
+            pass
+
+        def clear(self):
+            super().clear()
+
+        def pop(self, key, default=None):
+            return super().pop(key, default)
     cookies = DummyCookie()
+
+
 
 
 # ---------------------------------------------------------
@@ -115,10 +134,23 @@ if 'DEBUG_MODE' in globals() and DEBUG_MODE:
 
 
 
-# Connetti a Supabase con chiave di servizio o anonima
+# ---------------------------------------------------------
+# 🌐 Connessione a Supabase (con gestione errori)
+# ---------------------------------------------------------
 SUPABASE_URL = st.secrets.get("SUPABASE_URL")
-SUPABASE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY", st.secrets.get("SUPABASE_ANON_KEY"))
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")
+
+supabase = None
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("❌ Variabili Supabase mancanti: controlla 'SUPABASE_URL' e 'SUPABASE_ANON_KEY' in .streamlit/secrets.toml")
+else:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        st.sidebar.success("✅ Connessione Supabase attiva.")
+    except Exception as e:
+        st.sidebar.error(f"Connessione Supabase fallita: {e}")
+        supabase = None
+
 
 
 # Lista predefinita di materie disponibili
@@ -209,20 +241,16 @@ def get_ready_ids(session_id: str):
 
 
 def create_session_db(nome: str, materia: str, data_sessione, tema: str):
-    """Crea una sessione nella tabella 'sessioni'."""
+    """Crea una sessione nella tabella 'sessioni' con fallback automatico sui campi mancanti."""
     import uuid
-
-    # 1️⃣ Genera ID univoco
     sid = uuid.uuid4().hex[:8]
 
-    # 2️⃣ Normalizza data per compatibilità con Postgres
     data_iso = (
         data_sessione.strftime("%Y-%m-%d")
         if hasattr(data_sessione, "strftime")
         else str(data_sessione).replace("/", "-")[:10]
     )
 
-    # 3️⃣ Crea link pubblico e record coerente
     link_pubblico = build_join_url(sid)
     record = {
         "id": sid,
@@ -238,25 +266,28 @@ def create_session_db(nome: str, materia: str, data_sessione, tema: str):
         "pubblicato": False,
     }
 
-    # 4️⃣ Debug visivo
-    st.write("[DEBUG] insert sessioni →", record)
-
-    # 5️⃣ Inserimento con fallback automatico
+    log_debug(f"Tentativo inserimento sessione → {record}")
     try:
         supabase.table("sessioni").insert(record).execute()
         st.success(f"Sessione creata correttamente: {sid}")
     except Exception as e:
-        if "pubblicato" in record:
-            st.warning(f"Colonna 'pubblicato' non trovata o tipo errato → {e}")
-            rec2 = {k: v for k, v in record.items() if k != "pubblicato"}
-            supabase.table("sessioni").insert(rec2).execute()
-            st.success(f"Sessione creata (senza 'pubblicato'): {sid}")
-        else:
-            st.error(f"Errore nell'inserimento della sessione: {e}")
-            raise
-
-
+        # rimuove automaticamente i campi non accettati
+        invalid_fields = []
+        for key in list(record.keys()):
+            try:
+                supabase.table("sessioni").insert({key: record[key]}).execute()
+            except Exception:
+                invalid_fields.append(key)
+        for key in invalid_fields:
+            record.pop(key, None)
+        log_debug(f"Campi rimossi per compatibilità DB: {invalid_fields}")
+        try:
+            supabase.table("sessioni").insert(record).execute()
+            st.success(f"Sessione creata (senza {', '.join(invalid_fields)}): {sid}")
+        except Exception as e2:
+            st.error(f"Errore finale inserimento sessione: {e2}")
     return sid
+
 
 
 def create_nickname(session_id: str, code4: int):
@@ -324,24 +355,36 @@ def save_profile(
     try:
         existing = supabase.table("profiles").select("id").eq("id", nickname_id).execute()
         if existing.data:
-            # Aggiorna profilo esistente
             try:
                 supabase.table("profiles").update(record).eq("id", nickname_id).execute()
-            except Exception:
-                # fallback: prova senza 'future_role'
-                alt_record = record.copy()
-                alt_record.pop("future_role", None)
-                supabase.table("profiles").update(alt_record).eq("id", nickname_id).execute()
+            except Exception as e:
+                invalid = []
+                for key in list(record.keys()):
+                    try:
+                        supabase.table("profiles").update({key: record[key]}).eq("id", nickname_id).execute()
+                    except Exception:
+                        invalid.append(key)
+                for k in invalid:
+                    record.pop(k, None)
+                log_debug(f"Campi rimossi profilo per compatibilità: {invalid}")
+                supabase.table("profiles").update(record).eq("id", nickname_id).execute()
         else:
             try:
                 supabase.table("profiles").insert(record).execute()
             except Exception:
-                # fallback: prova senza 'future_role'
-                alt_record = record.copy()
-                alt_record.pop("future_role", None)
-                supabase.table("profiles").insert(alt_record).execute()
+                invalid = []
+                for key in list(record.keys()):
+                    try:
+                        supabase.table("profiles").insert({key: record[key]}).execute()
+                    except Exception:
+                        invalid.append(key)
+                for k in invalid:
+                    record.pop(k, None)
+                log_debug(f"Campi rimossi profilo (insert) per compatibilità: {invalid}")
+                supabase.table("profiles").insert(record).execute()
     except Exception as e:
         st.warning(f"Errore nel salvataggio del profilo: {e}")
+
     # Aggiorna l'alias nel record nickname
     try:
         supabase.table("nicknames").update({"nickname": alias}).eq("id", nickname_id).execute()
@@ -465,15 +508,28 @@ def create_groups_ext(session_id: str, group_size: int, weights: dict):
     for idx, grp in enumerate(groups):
         membri_ids = [p["id"] for p in grp]
         nome = names_pool[idx % len(names_pool)]
+        # ✅ Conversione sicura in JSON per compatibilità DB
+        def safe_json(obj):
+            try:
+                return json.dumps(obj, ensure_ascii=False)
+            except Exception:
+                return "[]"
+
         record = {
             "sessione_id": session_id,
             "nome_gruppo": nome,
-            "membri": membri_ids,
+            "membri": safe_json(membri_ids),
             "tema": theme,
             "data_creazione": datetime.now().isoformat(),
-            "pesi": weights,
+            "pesi": safe_json(weights),
         }
-        supabase.table("gruppi").insert(record).execute()
+
+        try:
+            supabase.table("gruppi").insert(record).execute()
+        except Exception as e:
+            st.warning(f"Errore inserimento gruppo {nome}: {e}")
+            log_debug(f"Record fallito: {record}")
+
     st.success(f"Creati {len(groups)} gruppi basati sui pesi selezionati.")
     # marca come non pubblicati nello stato locale
     published = st.session_state.setdefault("published_sessions", {})
