@@ -555,6 +555,9 @@ def publish_groups(session_id: str):
 # ---------------------------------------------------------
 def reset_teacher_session():
     """Elimina sessione e cookie in modo sicuro, evitando duplicazioni di Streamlit."""
+    # 🚩 Flag temporaneo per bloccare re-idratazione automatica al prossimo rerun
+    st.session_state["_teacher_reset_in_progress"] = True
+
     # 1. Cancella le chiavi di stato
     for k in list(st.session_state.keys()):
         if k.startswith(("teacher_", "student_")) or k in ["published_sessions"]:
