@@ -893,15 +893,23 @@ with tab_student:
     """
     st.header("Partecipa alla sessione")
 
-    # ---------------------------------------------------------
-    # 🔒 COOKIE → STATO (persistenza 6 ore)
-    # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 🔒 COOKIE → STATO (persistenza 6 ore) con controllo reset
+# ---------------------------------------------------------
+if not st.session_state.get("_student_reset_in_progress"):
+    # Carica cookie solo se non c'è già una sessione attiva
     if not st.session_state.get("student_session_id") and cookies.get("student_session_id"):
         st.session_state["student_session_id"] = cookies.get("student_session_id")
     if not st.session_state.get("student_nickname_id") and cookies.get("student_nickname_id"):
         st.session_state["student_nickname_id"] = cookies.get("student_nickname_id")
     if not st.session_state.get("student_pin") and cookies.get("student_pin"):
         st.session_state["student_pin"] = cookies.get("student_pin")
+else:
+    # Durante il reset evita il ripristino automatico e rimuove il flag
+    st.session_state.pop("_student_reset_in_progress", None)
+    if DEBUG_MODE:
+        st.sidebar.write("[DEBUG] Reset studente in corso: skip re-idratazione.")
+
 
 
     # ---------------------------------------------------------
