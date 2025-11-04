@@ -391,7 +391,9 @@ def save_profile(
 
     try:
         # Tentativo base: schema completo
-        _apply_write(record)
+        res0 = _apply_write(record)          # esegue INSERT/UPDATE
+        log_debug(f"WRITE base OK: {getattr(res0, 'data', None)}")  # logga risposta
+
     except Exception as e1:
         log_debug(f"WRITE base fallito: {e1}")
 
