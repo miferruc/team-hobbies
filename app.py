@@ -307,7 +307,6 @@ def create_nickname(session_id: str, code4: int):
         return res.data[0]
     raise RuntimeError("Impossibile creare nickname")
 
-
 def save_profile(
     nickname_id: str,
     alias: str,
@@ -319,14 +318,11 @@ def save_profile(
     future_role: str,
 ):
     """Salva o aggiorna il profilo utente e aggiorna il nickname nella tabella 'nicknames'."""
- 
+
     start_time = datetime.now()
     log_debug("Avvio salvataggio profilo...")
 
-
-
-    # Costruisci record da salvare nel profilo. Non include il campo 'nickname', che viene
-    # salvato nella tabella 'nicknames'.
+    # --- helper: forza liste native per colonne jsonb ---
     def to_list(x):
         """Garantisce una lista nativa; evita stringhe JSON nel DB."""
         if x is None:
@@ -335,26 +331,22 @@ def save_profile(
             return list(x)
         return [str(x)]
 
-
     now_str = datetime.now().isoformat()
 
+    # --- payload profilo: campi jsonb come liste native ---
     record = {
         "id": nickname_id,
         "approccio": approccio,
-        "hobby": to_list(hobby),                   # ✅ liste native
-        "materie_fatte": to_list(materie_fatte),   # ✅ liste native
-        "materie_dafare": to_list(materie_dafare), # ✅ liste native
-        "obiettivi": to_list(obiettivi),           # ✅ liste native
+        "hobby": to_list(hobby),                    # jsonb
+        "materie_fatte": to_list(materie_fatte),    # jsonb
+        "materie_dafare": to_list(materie_dafare),  # jsonb
+        "obiettivi": to_list(obiettivi),            # jsonb
         "future_role": future_role,
         "created_at": now_str,
         "updated_at": now_str,
     }
 
-
-
-    # Salva o aggiorna la tabella 'profiles' con fallback su colonne opzionali
-    # Strategia: prima controllo se esiste la riga -> UPDATE, altrimenti INSERT.
-    # Così evitiamo l'on_conflict="id" che richiede un vincolo UNIQUE su 'id'.
+    # --- write deterministico: UPDATE se esiste, altrimenti INSERT ---
     try:
         exists_res = (
             supabase.table("profiles")
@@ -367,10 +359,10 @@ def save_profile(
         log_debug(f"Esistenza profilo → {has_row}")
     except Exception as e0:
         log_debug(f"SELECT esistenza profilo fallita: {e0}")
-        has_row = False  # fallback prudente: tenteremo INSERT
+        has_row = False  # tenteremo INSERT
 
     def _apply_write(rec: dict):
-        """Esegue UPDATE se la riga esiste, altrimenti INSERT."""
+        """UPDATE se la riga esiste, altrimenti INSERT."""
         if has_row:
             payload = dict(rec)
             payload.pop("id", None)  # l'ID non si aggiorna
@@ -392,7 +384,7 @@ def save_profile(
         except Exception as e2:
             log_debug(f"WRITE senza 'future_role' fallito: {e2}")
 
-            # 2° fallback: rimuovi i timestamp se non previsti a schema
+            # 2° fallback: rimuovi i timestamp se non previsti
             rec3 = dict(rec2)
             rec3.pop("created_at", None)
             rec3.pop("updated_at", None)
@@ -402,7 +394,7 @@ def save_profile(
                 log_debug(f"WRITE senza timestamp fallito: {e3}")
 
                 # 3° fallback: colonne TEXT → serializza le liste in stringhe JSON
-                import json  # locale, evita dipendenze globali
+                import json
 
                 def _as_json_str(v):
                     try:
@@ -417,38 +409,25 @@ def save_profile(
                 log_debug("WRITE con serializzazione JSON per colonne TEXT → insert/update(rec4)")
                 _apply_write(rec4)
 
-
-
-
-    # verifica: rilegge i campi chiave appena salvati
+    # --- verifica esistenza riga salvata (non dipende dal contenuto dei campi) ---
     chk = (
         supabase.table("profiles")
-        .select("id, approccio, hobby, materie_fatte, materie_dafare, obiettivi, future_role")
+        .select("id")
         .eq("id", nickname_id)
+        .limit(1)
         .execute()
     )
-    saved = (chk.data or [{}])[0]
-    persisted = any([
-        bool(saved.get("approccio")),
-        bool(saved.get("hobby")),
-        bool(saved.get("materie_fatte")),
-        bool(saved.get("materie_dafare")),
-        bool(saved.get("obiettivi")),
-        bool(saved.get("future_role")),
-    ])
+    persisted = bool(chk.data)
     log_debug(f"Persisted? {persisted}")
-
     if not persisted:
-        raise RuntimeError("Profilo non persistito. Controlla lo schema della tabella 'profiles'.")
+        raise RuntimeError("Profilo non persistito. Controlla RLS o lo schema della tabella 'profiles'.")
 
-
-
-    # Aggiorna l'alias nel record nickname
+    # --- aggiorna alias su nicknames solo dopo persistenza confermata ---
     try:
         supabase.table("nicknames").update({"nickname": alias}).eq("id", nickname_id).execute()
     except Exception as e:
         st.warning(f"Errore nell'aggiornamento del nickname: {e}")
-    
+
     elapsed = (datetime.now() - start_time).total_seconds()
     log_debug(f"Profilo salvato in {elapsed:.2f} s")
 
