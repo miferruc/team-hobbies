@@ -317,34 +317,53 @@ def save_profile(
     obiettivi: list,
     future_role: str,
 ):
+
     """Salva o aggiorna il profilo utente e aggiorna il nickname nella tabella 'nicknames'."""
 
     start_time = datetime.now()
     log_debug("Avvio salvataggio profilo...")
 
-    # --- helper: forza liste native per colonne jsonb ---
+    # --- helper: forza liste native di stringhe per colonne text[] ---
     def to_list(x):
-        """Garantisce una lista nativa; evita stringhe JSON nel DB."""
+        """Ritorna sempre una lista di stringhe (compatibile con text[])."""
         if x is None:
             return []
         if isinstance(x, (list, tuple, set)):
-            return list(x)
+            return ["" if v is None else str(v) for v in x]
         return [str(x)]
 
     now_str = datetime.now().isoformat()
 
-    # --- payload profilo: campi jsonb come liste native ---
+    # --- payload profilo: campi array come liste native di stringhe (text[]) ---
     record = {
         "id": nickname_id,
         "approccio": approccio,
-        "hobby": to_list(hobby),                    # jsonb
-        "materie_fatte": to_list(materie_fatte),    # jsonb
-        "materie_dafare": to_list(materie_dafare),  # jsonb
-        "obiettivi": to_list(obiettivi),            # jsonb
-        "future_role": future_role,
+        "hobby": to_list(hobby),                    # text[]
+        "materie_fatte": to_list(materie_fatte),    # text[]
+        "materie_dafare": to_list(materie_dafare),  # text[]
+        "obiettivi": to_list(obiettivi),            # text[]
+        "future_role": future_role,                 # text
         "created_at": now_str,
         "updated_at": now_str,
     }
+
+    # --- preflight: UUID valido e presenza in 'nicknames' (FK) ---
+    try:
+        import uuid as _uuid
+        _ = _uuid.UUID(nickname_id)
+    except Exception:
+        raise RuntimeError(f"nickname_id non è un UUID valido: {nickname_id}")
+
+    nick_chk = (
+        supabase.table("nicknames")
+        .select("id")
+        .eq("id", nickname_id)
+        .limit(1)
+        .execute()
+    )
+    if not nick_chk.data:
+        raise RuntimeError(f"nickname_id inesistente in 'nicknames': {nickname_id}")
+    log_debug("Preflight OK: nickname esiste.")
 
     # --- write deterministico: UPDATE se esiste, altrimenti INSERT ---
     try:
@@ -393,23 +412,23 @@ def save_profile(
             except Exception as e3:
                 log_debug(f"WRITE senza timestamp fallito: {e3}")
 
-                # 3° fallback: colonne TEXT → serializza le liste in stringhe JSON
-                import json
-
-                def _as_json_str(v):
-                    try:
-                        return json.dumps(v, ensure_ascii=False)
-                    except Exception:
-                        return "[]"
+                # 3° fallback: forza stringhe per text[] (nessun JSON)
+                def _as_str_list(v):
+                    if v is None:
+                        return []
+                    if isinstance(v, (list, tuple, set)):
+                        return ["" if x is None else str(x) for x in v]
+                    return [str(v)]
 
                 rec4 = dict(rec3)
                 for k in ["hobby", "materie_fatte", "materie_dafare", "obiettivi"]:
-                    if k in rec4 and isinstance(rec4[k], list):
-                        rec4[k] = _as_json_str(rec4[k])
-                log_debug("WRITE con serializzazione JSON per colonne TEXT → insert/update(rec4)")
+                    if k in rec4:
+                        rec4[k] = _as_str_list(rec4[k])
+
+                log_debug("WRITE con coercizione a text[] → insert/update(rec4)")
                 _apply_write(rec4)
 
-    # --- verifica esistenza riga salvata (non dipende dal contenuto dei campi) ---
+    # --- verifica esistenza riga salvata (indipendente dal contenuto) ---
     chk = (
         supabase.table("profiles")
         .select("id")
