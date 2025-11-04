@@ -301,7 +301,6 @@ def create_nickname(session_id: str, code4: int):
         "session_id": session_id,
         "code4": code4,
         "nickname": None,
-        "created_at": datetime.now().isoformat(),
     }
     res = supabase.table("nicknames").insert(payload).execute()
     if res.data:
