@@ -43,6 +43,19 @@ from supabase import create_client
 import qrcode
 from datetime import timedelta
 
+# ---------------------------------------------------------
+# ⚡ Cache temporanea per il caricamento profilo studente
+# ---------------------------------------------------------
+@st.cache_data(ttl=30)
+def load_profile_cached(nickname_id: str):
+    """Carica il profilo dello studente con cache di 30s per ridurre le query."""
+    try:
+        res = supabase.table("profiles").select("*").eq("id", nickname_id).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        return None
+
+
 # 🧭 Config pagina — deve essere la PRIMA chiamata Streamlit
 st.set_page_config(page_title="Gruppi login-free", page_icon="📚", layout="centered")
 
@@ -365,70 +378,27 @@ def save_profile(
         raise RuntimeError(f"nickname_id inesistente in 'nicknames': {nickname_id}")
     log_debug("Preflight OK: nickname esiste.")
 
-    # --- write deterministico: UPDATE se esiste, altrimenti INSERT ---
+    # --- scrittura ottimizzata con UPSERT (merge automatico) ---
     try:
-        exists_res = (
+        # 🔹 esegue un'unica query: inserisce o aggiorna in base all'id esistente
+        res = (
             supabase.table("profiles")
-            .select("id")
-            .eq("id", nickname_id)
-            .limit(1)
+            .upsert(record, on_conflict="id")
             .execute()
         )
-        has_row = bool(exists_res.data)
-        log_debug(f"Esistenza profilo → {has_row}")
-    except Exception as e0:
-        log_debug(f"SELECT esistenza profilo fallita: {e0}")
-        has_row = False  # tenteremo INSERT
+        log_debug(f"UPSERT eseguito con successo: {getattr(res, 'data', None)}")
 
-    def _apply_write(rec: dict):
-        """UPDATE se la riga esiste, altrimenti INSERT."""
-        if has_row:
-            payload = dict(rec)
-            payload.pop("id", None)  # l'ID non si aggiorna
-            return supabase.table("profiles").update(payload).eq("id", nickname_id).execute()
-        else:
-            return supabase.table("profiles").insert(rec).execute()
-
-    try:
-        # Tentativo base: schema completo
-        res0 = _apply_write(record)          # esegue INSERT/UPDATE
-        log_debug(f"WRITE base OK: {getattr(res0, 'data', None)}")  # logga risposta
-
-    except Exception as e1:
-        log_debug(f"WRITE base fallito: {e1}")
-
-        # 1° fallback: rimuovi 'future_role' se la colonna non esiste
+    except Exception as e:
+        # 🔸 fallback unico in caso di errore schema → rimuove solo il campo opzionale future_role
+        log_debug(f"UPSERT fallito: {e}. Riprovo senza 'future_role'.")
         rec2 = dict(record)
         rec2.pop("future_role", None)
         try:
-            _apply_write(rec2)
+            supabase.table("profiles").upsert(rec2, on_conflict="id").execute()
+            log_debug("UPSERT senza 'future_role' riuscito.")
         except Exception as e2:
-            log_debug(f"WRITE senza 'future_role' fallito: {e2}")
+            st.error(f"Errore durante l'UPSERT anche senza 'future_role': {e2}")
 
-            # 2° fallback: rimuovi i timestamp se non previsti
-            rec3 = dict(rec2)
-            rec3.pop("created_at", None)
-            rec3.pop("updated_at", None)
-            try:
-                _apply_write(rec3)
-            except Exception as e3:
-                log_debug(f"WRITE senza timestamp fallito: {e3}")
-
-                # 3° fallback: forza stringhe per text[] (nessun JSON)
-                def _as_str_list(v):
-                    if v is None:
-                        return []
-                    if isinstance(v, (list, tuple, set)):
-                        return ["" if x is None else str(x) for x in v]
-                    return [str(v)]
-
-                rec4 = dict(rec3)
-                for k in ["hobby", "materie_fatte", "materie_dafare", "obiettivi"]:
-                    if k in rec4:
-                        rec4[k] = _as_str_list(rec4[k])
-
-                log_debug("WRITE con coercizione a text[] → insert/update(rec4)")
-                _apply_write(rec4)
 
     # --- verifica esistenza riga salvata (indipendente dal contenuto) ---
     chk = (
@@ -1121,11 +1091,8 @@ with tab_student:
             st.info("Prima scegli un nickname nella scheda precedente.")
         else:
             # Carica profilo esistente
-            try:
-                prof_res = supabase.table("profiles").select("*").eq("id", nickname_id).execute()
-                profile_data = prof_res.data[0] if prof_res.data else None
-            except Exception:
-                profile_data = None
+            profile_data = load_profile_cached(nickname_id)
+
 
             with st.form("stud_form_profilo"):
                 # Recupera alias dal DB 'nicknames' per coerenza
@@ -1245,7 +1212,13 @@ with tab_student:
                                 future_role,
                             )
                             st.success("Profilo salvato correttamente.")
-                            st.rerun()  # forza il reload per ricaricare i default dal DB
+                            st.toast("Profilo aggiornato con successo ✅", icon="💾")
+                            st.session_state["profile_saved"] = True
+
+                            # ⚡ Aggiorna cache del profilo dopo il salvataggio
+                            load_profile_cached.clear()
+
+
 
 
                         except Exception as e:
