@@ -37,6 +37,8 @@ import uuid
 from datetime import datetime
 from io import BytesIO
 
+import time # ⏱ usato per una breve attesa dopo l'inserimento del nickname
+
 import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
@@ -56,8 +58,41 @@ def load_profile_cached(nickname_id: str):
         return None
 
 
+# ---------------------------------------------------------
+# ⚡ Cache temporanea per lobby docente
+# ---------------------------------------------------------
+@st.cache_data(ttl=15)
+def get_nicknames_cached(session_id: str):
+    """Lista nicknames per lobby docente con cache 15s."""
+    try:
+        res = (
+            supabase.table("nicknames")
+            .select("id, code4, nickname, created_at")
+            .eq("session_id", session_id)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=15)
+def get_ready_ids_cached(session_id: str):
+    """Set di nickname_id con profilo presente, cache 15s."""
+    try:
+        nicks = get_nicknames_cached(session_id)
+        nick_ids = [n["id"] for n in nicks]
+        if not nick_ids:
+            return set()
+        res = supabase.table("profiles").select("id").in_("id", nick_ids).execute()
+        return set([r["id"] for r in (res.data or [])])
+    except Exception:
+        return set()
+
+
 # 🧭 Config pagina — deve essere la PRIMA chiamata Streamlit
 st.set_page_config(page_title="Gruppi login-free", page_icon="📚", layout="centered")
+
 
 
 
@@ -780,7 +815,11 @@ with tab_teacher:
         # ---------------------------------------------------------
         st.subheader("Lobby studenti")
         if st.button("🔄 Aggiorna dati", key="refresh_lobby"):
+            # ✅ Imposta flag per svuotare cache
+            st.session_state["refresh_lobby_trigger"] = True
+            st.toast("Cache aggiornata 🔁", icon="♻️")
             st.rerun()
+
 
         # aggiorna automaticamente ogni 60 s senza flicker
         st.caption(f"Ultimo aggiornamento: {datetime.now().strftime('%H:%M:%S')}")
@@ -788,8 +827,16 @@ with tab_teacher:
 
 
 
-        nicknames = get_nicknames(sid)
-        ready_ids = get_ready_ids(sid)
+        # ⚡ Recupero dati con cache (15s) per ridurre query ripetute
+        nicknames = get_nicknames_cached(sid)
+        ready_ids = get_ready_ids_cached(sid)
+
+        # 🔄 Refresh cache manuale quando richiesto
+        if st.session_state.get("refresh_lobby_trigger"):
+            get_nicknames_cached.clear()
+            get_ready_ids_cached.clear()
+            st.session_state.pop("refresh_lobby_trigger", None)
+
         st.metric("Scansionati", len(nicknames))
         st.metric("Pronti", len(ready_ids))
 
@@ -1055,27 +1102,48 @@ with tab_student:
                     if not nick_val or not nick_val.isdigit() or len(nick_val) != 4:
                         st.error("Il nickname deve essere un numero di 4 cifre.")
                     else:
-                        try:
-                            new_nick = create_nickname(session_id_input, int(nick_val))
-                            st.session_state["student_nickname_id"] = new_nick["id"]
-                            st.session_state["student_session_id_cached"] = session_id_input
-                            st.session_state["student_pin"] = nick_val
+                        # ✅ CREAZIONE NICKNAME con controllo di persistenza
+                        with st.spinner("Registrazione in corso..."):
+                            try:
+                                # Crea nickname su Supabase
+                                new_nick = create_nickname(session_id_input, int(nick_val))
 
-                            # 🔒 salva cookie per 6 ore
-                            cookies["student_session_id"] = session_id_input
-                            cookies["student_nickname_id"] = new_nick["id"]
-                            cookies["student_pin"] = nick_val
-                            cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                            cookies.save()
+                                # ⏱ attende mezzo secondo per permettere la scrittura effettiva su DB
+                                time.sleep(0.5)
 
-                            st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
-                        except Exception as e:
-                            st.error(f"Errore durante la creazione del nickname: {e}")
+                                # 🔍 Verifica che il record esista effettivamente su Supabase
+                                chk = (
+                                    supabase.table("nicknames")
+                                    .select("id")
+                                    .eq("id", new_nick["id"])
+                                    .limit(1)
+                                    .execute()
+                                )
+
+                                # ⚠️ Se il record non è ancora disponibile, mostra avviso
+                                if not chk.data:
+                                    st.warning("Registrazione in corso, attendi un secondo e aggiorna la pagina.")
+                                else:
+                                    # ✅ Scrive stato e cookie solo se confermato
+                                    st.session_state["student_nickname_id"] = new_nick["id"]
+                                    st.session_state["student_session_id_cached"] = session_id_input
+                                    st.session_state["student_pin"] = nick_val
+
+                                    # 🔒 Salvataggio cookie con scadenza 6 ore
+                                    cookies["student_session_id"] = session_id_input
+                                    cookies["student_nickname_id"] = new_nick["id"]
+                                    cookies["student_pin"] = nick_val
+                                    cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                                    cookies.save()
+
+                                    st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
+                            except Exception as e:
+                                st.error(f"Errore durante la creazione del nickname: {e}")
             else:
                 st.success("Nickname già confermato. Puoi compilare il profilo nella scheda successiva.")
                 st.write(f"Il tuo nickname: {st.session_state.get('student_pin', '—')}")
 
-                # Assicura coerenza cookie ↔ stato
+                # 🔄 Assicura coerenza cookie ↔ stato
                 cookies["student_session_id"] = st.session_state["student_session_id"]
                 cookies["student_nickname_id"] = st.session_state["student_nickname_id"]
                 cookies["student_pin"] = st.session_state["student_pin"]
@@ -1199,31 +1267,32 @@ with tab_student:
                     elif supabase is None:
                         st.error("Connessione al database non disponibile. Controlla le credenziali Supabase.")
                     else:
-                        try:
-                            # 2) Salvataggio
-                            save_profile(
-                                nickname_id,
-                                alias or st.session_state.get("student_pin", ""),
-                                approccio,
-                                hobbies,
-                                materie_fatte,
-                                materie_dafare,
-                                obiettivi_sel,
-                                future_role,
-                            )
-                            st.success("Profilo salvato correttamente.")
-                            st.toast("Profilo aggiornato con successo ✅", icon="💾")
-                            st.session_state["profile_saved"] = True
+                        # ⏳ Mostra loader temporaneo per ridurre la sensazione di blocco UI
+                        with st.spinner("Salvataggio in corso..."):
+                            time.sleep(0.2)  # breve pausa per sincronizzazione visiva
+                            try:
+                                # 2️⃣ Salvataggio effettivo nel DB
+                                save_profile(
+                                    nickname_id,
+                                    alias or st.session_state.get("student_pin", ""),
+                                    approccio,
+                                    hobbies,
+                                    materie_fatte,
+                                    materie_dafare,
+                                    obiettivi_sel,
+                                    future_role,
+                                )
 
-                            # ⚡ Aggiorna cache del profilo dopo il salvataggio
-                            load_profile_cached.clear()
+                                # ✅ Feedback immediato e aggiornamento stato
+                                st.toast("Profilo salvato ✅", icon="💾")
+                                st.session_state["profile_saved"] = True
 
+                                # ⚡ Aggiorna cache del profilo dopo il salvataggio
+                                load_profile_cached.clear()
 
-
-
-                        except Exception as e:
-                            # 3) Errore esplicito
-                            st.error(f"Errore durante il salvataggio del profilo: {e}")
+                            except Exception as e:
+                                # ⚠️ Gestione errori chiara
+                                st.error(f"Errore durante il salvataggio del profilo: {e}")
 
 
             # ---------------------------------------------------------
