@@ -571,20 +571,15 @@ def create_groups_ext(session_id: str, group_size: int, weights: dict):
     for idx, grp in enumerate(groups):
         membri_ids = [p["id"] for p in grp]
         nome = names_pool[idx % len(names_pool)]
-        # ✅ Conversione sicura in JSON per compatibilità DB
-        def safe_json(obj):
-            try:
-                return json.dumps(obj, ensure_ascii=False)
-            except Exception:
-                return "[]"
 
+        # ✅ Creazione record con strutture dati native
         record = {
             "sessione_id": session_id,
             "nome_gruppo": nome,
-            "membri": safe_json(membri_ids),
+            "membri": membri_ids,                   # lista di UUID → colonna uuid[] o text[]
             "tema": theme,
             "data_creazione": datetime.now().isoformat(),
-            "pesi": safe_json(weights),
+            "pesi": weights,                        # dizionario → colonna jsonb
         }
 
         try:
