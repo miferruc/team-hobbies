@@ -918,7 +918,9 @@ with tab_teacher:
 
                 cookies["teacher_session_id"] = sid
                 cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                cookies.save(key=f"sync_cookies_{sid}")
+                cookies.save()
+
+
 
 
 
@@ -1276,7 +1278,11 @@ with tab_student:
 
             if not nickname_id or nickname_session != session_id_input:
                 # ✅ Assegnazione automatica del nickname
-                if st.button("Conferma nickname", key="stu_confirm_pin") and not st.session_state.get("_nickname_in_progress"):
+                if (
+                    st.button("Conferma nickname", key="stu_confirm_pin")
+                    and not st.session_state.get("_nickname_in_progress")
+                    and not st.session_state.get("_nickname_created")
+                ):
                     st.session_state["_nickname_in_progress"] = True  # 🔒 blocca doppi click e rerun
 
                     with st.spinner("Assegnazione automatica in corso..."):
@@ -1313,10 +1319,17 @@ with tab_student:
                             cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
                             cookies.save()  # ✅ nessun argomento
 
-                            # 🔓 Riabilita il pulsante dopo il completamento
-                            st.session_state.pop("_nickname_in_progress", None)
+                            # 🔓 Riabilita il pulsante e marca creazione completata
+                            st.session_state["_nickname_in_progress"] = False
+                            st.session_state["_nickname_created"] = True
 
                             st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
+
+                            # 🔄 Sincronizzazione immediata dello stato (risolve errore nickname_id)
+                            st.session_state["student_nickname_id"] = new_nick["id"]
+                            st.session_state["student_session_id"] = session_id_input
+                            st.experimental_rerun()
+
                         except Exception as e:
                             st.error(f"Errore durante l'assegnazione del nickname: {e}")
                             st.session_state.pop("_nickname_in_progress", None)  # 🔓 sblocca anche in caso d’errore
@@ -1331,6 +1344,7 @@ with tab_student:
                 cookies["student_pin"] = st.session_state["student_pin"]
                 cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
                 cookies.save()  # ✅ nessun argomento
+
 
 
     # ---------------------------------------------------------
