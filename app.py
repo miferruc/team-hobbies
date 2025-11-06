@@ -338,22 +338,59 @@ def create_session_db(nome: str, materia: str, data_sessione, tema: str):
 
 
 
-def create_nickname(session_id: str, code4: int):
-    """Crea un record nella tabella 'nicknames' con il codice a 4 cifre."""
-    res_check = (
-        supabase.table("nicknames").select("id").eq("session_id", session_id).eq("code4", code4).execute()
-    )
-    if res_check.data:
-        raise ValueError("Questo nickname è già in uso in questa sessione")
+def create_nickname(session_id: str):
+    """
+    Crea automaticamente un nickname progressivo da 00000 a 99999 per la sessione.
+    Logica: next_code = (max(code4 esistenti) + 1). Se supera 99999 lancia errore.
+    Fallback: se non riesce a leggere i codici, usa un numero derivato dall'ora.
+    """
+    try:
+        # Legge tutti i code4 esistenti per quella sessione
+        res = (
+            supabase.table("nicknames")
+            .select("code4")
+            .eq("session_id", session_id)
+            .execute()
+        )
+        existing = []
+        for r in (res.data or []):
+            val = r.get("code4")
+            try:
+                existing.append(int(val))
+            except Exception:
+                continue
+
+        next_code = (max(existing) + 1) if existing else 0
+        if next_code > 99999:
+            raise ValueError("Limite massimo 99999 raggiunto per questa sessione.")
+    except Exception as e:
+        # Fallback robusto se la select fallisce
+        st.warning(f"Errore nel calcolo del prossimo codice: {e}")
+        # Usa i secondi dell'ora corrente per generare un numero entro 0..99999
+        next_code = int(datetime.now().strftime("%H%M%S")) % 100000
+
     payload = {
         "session_id": session_id,
-        "code4": code4,
-        "nickname": None,
+        "code4": next_code,
+        "nickname": None,  # l'alias potrà essere impostato in seguito dal profilo
     }
-    res = supabase.table("nicknames").insert(payload).execute()
-    if res.data:
-        return res.data[0]
-    raise RuntimeError("Impossibile creare nickname")
+
+    # Inserisce il record; se una race condition genera duplicato, ci riprova una volta
+    try:
+        res_ins = supabase.table("nicknames").insert(payload).execute()
+    except Exception as e:
+        # Riprova una sola volta con next_code+1 per ridurre il rischio di collisioni simultanee
+        try:
+            payload["code4"] = (next_code + 1) % 100000
+            res_ins = supabase.table("nicknames").insert(payload).execute()
+        except Exception as e2:
+            raise RuntimeError(f"Impossibile creare nickname automatico: {e2}")
+
+    if res_ins.data:
+        return res_ins.data[0]
+
+    raise RuntimeError("Impossibile creare nickname automatico")
+
 
 def save_profile(
     nickname_id: str,
@@ -1088,52 +1125,43 @@ with tab_student:
             nickname_session = st.session_state.get("student_session_id_cached")
 
             if not nickname_id or nickname_session != session_id_input:
-                nick_val = st.text_input(
-                    "Scegli un nickname (4 cifre)",
-                    max_chars=4,
-                    key="stu_pin_input",
-                )
+                # ✅ Assegnazione automatica del nickname
                 if st.button("Conferma nickname", key="stu_confirm_pin"):
-                    if not nick_val or not nick_val.isdigit() or len(nick_val) != 4:
-                        st.error("Il nickname deve essere un numero di 4 cifre.")
-                    else:
-                        # ✅ CREAZIONE NICKNAME con controllo di persistenza
-                        with st.spinner("Registrazione in corso..."):
-                            try:
-                                # Crea nickname su Supabase
-                                new_nick = create_nickname(session_id_input, int(nick_val))
+                    with st.spinner("Assegnazione automatica in corso..."):
+                        try:
+                            # Crea nickname automatico su Supabase
+                            new_nick = create_nickname(session_id_input)
 
-                                # ⏱ attende mezzo secondo per permettere la scrittura effettiva su DB
-                                time.sleep(0.5)
+                            # ⏱ breve attesa per la propagazione su DB
+                            time.sleep(0.5)
 
-                                # 🔍 Verifica che il record esista effettivamente su Supabase
-                                chk = (
-                                    supabase.table("nicknames")
-                                    .select("id")
-                                    .eq("id", new_nick["id"])
-                                    .limit(1)
-                                    .execute()
-                                )
+                            # 🔍 Verifica presenza effettiva del record
+                            chk = (
+                                supabase.table("nicknames")
+                                .select("id")
+                                .eq("id", new_nick["id"])
+                                .limit(1)
+                                .execute()
+                            )
 
-                                # ⚠️ Se il record non è ancora disponibile, mostra avviso
-                                if not chk.data:
-                                    st.warning("Registrazione in corso, attendi un secondo e aggiorna la pagina.")
-                                else:
-                                    # ✅ Scrive stato e cookie solo se confermato
-                                    st.session_state["student_nickname_id"] = new_nick["id"]
-                                    st.session_state["student_session_id_cached"] = session_id_input
-                                    st.session_state["student_pin"] = nick_val
+                            if not chk.data:
+                                st.warning("Registrazione in corso, attendi un secondo e aggiorna la pagina.")
+                            else:
+                                # ✅ Aggiorna stato e cookie
+                                st.session_state["student_nickname_id"] = new_nick["id"]
+                                st.session_state["student_session_id_cached"] = session_id_input
+                                st.session_state["student_pin"] = f"{new_nick['code4']:05d}"
 
-                                    # 🔒 Salvataggio cookie con scadenza 6 ore
-                                    cookies["student_session_id"] = session_id_input
-                                    cookies["student_nickname_id"] = new_nick["id"]
-                                    cookies["student_pin"] = nick_val
-                                    cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                                    cookies.save()
+                                cookies["student_session_id"] = session_id_input
+                                cookies["student_nickname_id"] = new_nick["id"]
+                                cookies["student_pin"] = st.session_state["student_pin"]
+                                cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                                cookies.save()
 
-                                    st.success("Nickname confermato! Ora passa alla scheda Profilo per completare i dati.")
-                            except Exception as e:
-                                st.error(f"Errore durante la creazione del nickname: {e}")
+                                st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
+                        except Exception as e:
+                            st.error(f"Errore durante l'assegnazione del nickname: {e}")
+
             else:
                 st.success("Nickname già confermato. Puoi compilare il profilo nella scheda successiva.")
                 st.write(f"Il tuo nickname: {st.session_state.get('student_pin', '—')}")
