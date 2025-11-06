@@ -848,44 +848,49 @@ with tab_teacher:
         # ---------------------------------------------------------
         # LOBBY STUDENTI (aggiornamento automatico ogni 15s)
         # ---------------------------------------------------------
-        st.subheader("Lobby studenti")
-        if st.button("🔄 Aggiorna dati", key="refresh_lobby"):
-            # ✅ Imposta flag per svuotare cache
-            st.session_state["refresh_lobby_trigger"] = True
-            st.toast("Cache aggiornata 🔁", icon="♻️")
-            st.rerun()
+        with st.expander("👥 Mostra/Chiudi Lobby Studenti"):
+            st.subheader("Lobby studenti")
+            st.caption("Elenco studenti collegati alla sessione e stato dei profili.")
 
+            if st.button("🔄 Aggiorna dati", key="refresh_lobby_teacher"):
+                # ✅ Imposta flag per svuotare cache
+                st.session_state["refresh_lobby_trigger"] = True
+                st.toast("Cache aggiornata 🔁", icon="♻️")
+                st.rerun()
 
-        # aggiorna automaticamente ogni 60 s senza flicker
-        st.caption(f"Ultimo aggiornamento: {datetime.now().strftime('%H:%M:%S')}")
+            # aggiorna automaticamente ogni 60 s senza flicker
+            st.caption(f"Ultimo aggiornamento: {datetime.now().strftime('%H:%M:%S')}")
 
+            # ⚡ Recupero dati con cache (15s) per ridurre query ripetute
+            nicknames = get_nicknames_cached(sid)
+            ready_ids = get_ready_ids_cached(sid)
 
+            # 🔄 Refresh cache manuale quando richiesto
+            if st.session_state.get("refresh_lobby_trigger"):
+                get_nicknames_cached.clear()
+                get_ready_ids_cached.clear()
+                st.session_state.pop("refresh_lobby_trigger", None)
 
+            st.metric("Scansionati", len(nicknames))
+            st.metric("Pronti", len(ready_ids))
 
-        # ⚡ Recupero dati con cache (15s) per ridurre query ripetute
-        nicknames = get_nicknames_cached(sid)
-        ready_ids = get_ready_ids_cached(sid)
+            if nicknames:
+                table_data = []
+                for n in nicknames:
+                    pin = n.get("code4")
+                    alias = n.get("nickname") or "—"
+                    stato = "✅" if n.get("id") in ready_ids else "⏳"
+                    table_data.append({
+                        "Nickname": f"{pin:05d}" if pin is not None else "-----",
+                        "Alias": alias,
+                        "Pronto": stato
+                    })
+                st.table(table_data)
+            else:
+                st.write("Nessuno studente ha ancora scansionato.")
 
-        # 🔄 Refresh cache manuale quando richiesto
-        if st.session_state.get("refresh_lobby_trigger"):
-            get_nicknames_cached.clear()
-            get_ready_ids_cached.clear()
-            st.session_state.pop("refresh_lobby_trigger", None)
-
-        st.metric("Scansionati", len(nicknames))
-        st.metric("Pronti", len(ready_ids))
-
-        if nicknames:
-            table_data = []
-            for n in nicknames:
-                pin = n.get("code4")
-                alias = n.get("nickname") or "—"
-                stato = "✅" if n.get("id") in ready_ids else "⏳"
-                table_data.append({"Nickname": f"{pin:05d}" if pin is not None else "----", "Alias": alias, "Pronto": stato})
-            st.table(table_data)
-        else:
-            st.write("Nessuno studente ha ancora scansionato.")
         st.divider()
+
 
         # ---------------------------------------------------------
         # PESI DI MATCHING
