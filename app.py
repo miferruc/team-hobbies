@@ -43,6 +43,7 @@ import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 from supabase import create_client
 import qrcode
+import time
 from datetime import timedelta
 
 # ---------------------------------------------------------
@@ -1281,34 +1282,36 @@ with tab_student:
                             # Crea nickname automatico su Supabase
                             new_nick = create_nickname(session_id_input)
 
-                            # ⏱ breve attesa per la propagazione su DB
-                            time.sleep(0.5)
+                            # 🔁 Attesa attiva per garantire la replica del record su Supabase
+                            chk = None
+                            for _ in range(3):  # tenta 3 volte
+                                chk = (
+                                    supabase.table("nicknames")
+                                    .select("id")
+                                    .eq("id", new_nick["id"])
+                                    .limit(1)
+                                    .execute()
+                                )
+                                if chk.data:
+                                    break
+                                time.sleep(0.8)
 
-                            # 🔍 Verifica presenza effettiva del record
-                            chk = (
-                                supabase.table("nicknames")
-                                .select("id")
-                                .eq("id", new_nick["id"])
-                                .limit(1)
-                                .execute()
-                            )
+                            if not chk or not chk.data:
+                                st.warning("Registrazione in corso, attendi qualche secondo e aggiorna la pagina.")
+                                st.stop()
 
-                            if not chk.data:
-                                st.warning("Registrazione in corso, attendi un secondo e aggiorna la pagina.")
-                            else:
-                                # ✅ Aggiorna stato e cookie
-                                st.session_state["student_nickname_id"] = new_nick["id"]
-                                st.session_state["student_session_id_cached"] = session_id_input
-                                st.session_state["student_pin"] = f"{new_nick['code4']:05d}"
+                            # ✅ Aggiorna stato e cookie
+                            st.session_state["student_nickname_id"] = new_nick["id"]
+                            st.session_state["student_session_id_cached"] = session_id_input
+                            st.session_state["student_pin"] = f"{new_nick['code4']:05d}"
 
-                                cookies["student_session_id"] = session_id_input
-                                cookies["student_nickname_id"] = new_nick["id"]
-                                cookies["student_pin"] = st.session_state["student_pin"]
-                                cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                                cookies.save(key=f"sync_cookies_{session_id_input}")
+                            cookies["student_session_id"] = session_id_input
+                            cookies["student_nickname_id"] = new_nick["id"]
+                            cookies["student_pin"] = st.session_state["student_pin"]
+                            cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
+                            cookies.save()  # ✅ nessun argomento
 
-
-                                st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
+                            st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
                         except Exception as e:
                             st.error(f"Errore durante l'assegnazione del nickname: {e}")
 
@@ -1321,7 +1324,8 @@ with tab_student:
                 cookies["student_nickname_id"] = st.session_state["student_nickname_id"]
                 cookies["student_pin"] = st.session_state["student_pin"]
                 cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                cookies.save()
+                cookies.save()  # ✅ nessun argomento
+
 
     # ---------------------------------------------------------
     # PROFILO
