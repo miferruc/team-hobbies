@@ -1276,10 +1276,12 @@ with tab_student:
 
             if not nickname_id or nickname_session != session_id_input:
                 # ✅ Assegnazione automatica del nickname
-                if st.button("Conferma nickname", key="stu_confirm_pin"):
+                if st.button("Conferma nickname", key="stu_confirm_pin") and not st.session_state.get("_nickname_in_progress"):
+                    st.session_state["_nickname_in_progress"] = True  # 🔒 blocca doppi click e rerun
+
                     with st.spinner("Assegnazione automatica in corso..."):
                         try:
-                            # Crea nickname automatico su Supabase
+                            # 🧩 Crea nickname automatico su Supabase
                             new_nick = create_nickname(session_id_input)
 
                             # 🔁 Attesa attiva per garantire la replica del record su Supabase
@@ -1311,9 +1313,13 @@ with tab_student:
                             cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
                             cookies.save()  # ✅ nessun argomento
 
+                            # 🔓 Riabilita il pulsante dopo il completamento
+                            st.session_state.pop("_nickname_in_progress", None)
+
                             st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
                         except Exception as e:
                             st.error(f"Errore durante l'assegnazione del nickname: {e}")
+                            st.session_state.pop("_nickname_in_progress", None)  # 🔓 sblocca anche in caso d’errore
 
             else:
                 st.success("Nickname già confermato. Puoi compilare il profilo nella scheda successiva.")
