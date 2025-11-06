@@ -541,6 +541,121 @@ def compute_similarity_ext(p1, p2, weights: dict) -> float:
         score += weights.get("future_role", 0) * (1.0 if fr1 == fr2 else 0.0)
     return score
 
+# =========================================================
+# Predominant trait per gruppo
+# =========================================================
+def get_predominant_trait(member_ids: list):
+    """
+    Calcola il tratto predominante del gruppo e produce l'etichetta 'Team ...'.
+    Valuta: hobby, approccio, materie_fatte, obiettivi, future_role.
+    Per ogni campo prende il valore più frequente e calcola l'omogeneità = freq_max / n_membri.
+    In caso di pareggio tra campi, sceglie casualmente.
+    Ritorna: {"field": str, "value": str, "score": float, "label": str}
+    """
+    import json
+    from collections import Counter
+    import random
+
+    if not member_ids:
+        return {"field": None, "value": None, "score": 0.0, "label": "Team Generale"}
+
+    try:
+        # 1) Legge tutti i profili dei membri
+        prof_res = (
+            supabase.table("profiles")
+            .select("id, hobby, approccio, materie_fatte, obiettivi, future_role")
+            .in_("id", member_ids)
+            .execute()
+        )
+        profiles = prof_res.data or []
+    except Exception:
+        profiles = []
+
+    n = max(1, len(profiles))
+
+    # 2) Helpers per estrarre liste/valori in modo robusto
+    def to_list(v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            # Se è JSON valido -> lista
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+            # altrimenti singolo valore
+            return [s]
+        return []
+
+    def to_scalar(v):
+        lst = to_list(v)
+        return lst[0] if lst else ""
+
+    # 3) Costruisce i contatori per ciascun campo
+    field_values = {
+        "hobby": sum([to_list(p.get("hobby")) for p in profiles], []),
+        "approccio": [to_scalar(p.get("approccio")) for p in profiles],
+        "materie_fatte": sum([to_list(p.get("materie_fatte")) for p in profiles], []),
+        "obiettivi": sum([to_list(p.get("obiettivi")) for p in profiles], []),
+        "future_role": [to_scalar(p.get("future_role")) for p in profiles],
+    }
+
+    field_best = {}  # field -> (best_value, score)
+    for fld, values in field_values.items():
+        values = [v for v in values if v]  # rimuove vuoti
+        if not values:
+            field_best[fld] = ("", 0.0)
+            continue
+        cnt = Counter(values)
+        best_val, best_freq = cnt.most_common(1)[0]
+        # normalizza rispetto ai membri del gruppo (non solo ai valori presenti)
+        score = best_freq / n
+        field_best[fld] = (best_val, score)
+
+    # 4) Seleziona il campo con score massimo. Pareggio -> random
+    max_score = max(field_best[f][1] for f in field_best)
+    top_fields = [f for f, (val, sc) in field_best.items() if sc == max_score and sc > 0]
+    if not top_fields:
+        return {"field": None, "value": None, "score": 0.0, "label": "Team Generale"}
+
+    chosen_field = random.choice(top_fields)
+    chosen_value, chosen_score = field_best[chosen_field]
+
+    # 5) Mappa etichette leggibili
+    def prettify(s: str) -> str:
+        return str(s).strip().capitalize()
+
+    def make_label(field: str, value: str) -> str:
+        # Regole specifiche richieste (esempi: Palestra, Manager)
+        v = value.strip()
+        if field == "future_role":
+            return f"Team {prettify(v)}"  # es. Manager -> Team Manager
+        if field == "hobby":
+            return f"Team {prettify(v)}"  # es. palestra -> Team Palestra
+        if field == "approccio":
+            return f"Team {prettify(v)}"
+        if field == "materie_fatte":
+            return f"Team {prettify(v)}"
+        if field == "obiettivi":
+            return f"Team {prettify(v)}"
+        return "Team Generale"
+
+    label = make_label(chosen_field, chosen_value)
+
+    return {
+        "field": chosen_field,
+        "value": chosen_value,
+        "score": round(chosen_score, 3),
+        "label": label,
+    }
+
 
 def create_groups_ext(session_id: str, group_size: int, weights: dict):
     """Crea gruppi in base ai pesi indicati."""
@@ -991,12 +1106,17 @@ with tab_teacher:
                     )
             except Exception as e:
                 st.error(f"Errore durante l'esportazione CSV: {e}")
+            
+
+
+
 
         # ---------------------------------------------------------
         # GRUPPI CREATI
         # ---------------------------------------------------------
         st.subheader("Gruppi creati")
         try:
+            # 🔍 Recupera i gruppi dalla tabella 'gruppi'
             res = supabase.table("gruppi").select("nome_gruppo, membri").eq("sessione_id", sid).execute()
             gruppi_creati = res.data or []
         except Exception:
@@ -1005,7 +1125,7 @@ with tab_teacher:
         if not gruppi_creati:
             st.info("Nessun gruppo ancora creato.")
         else:
-            # ✅ Normalizza 'membri' a lista
+            # ✅ Normalizza 'membri' in lista Python
             for g in gruppi_creati:
                 raw = g.get("membri")
                 if isinstance(raw, str):
@@ -1018,7 +1138,7 @@ with tab_teacher:
                 else:
                     g["membri"] = []
 
-            # Mappa alias per gli ID membri
+            # ✅ Mappa alias dei membri per mostrare i nickname
             all_ids = list({mid for g in gruppi_creati for mid in g["membri"]})
             alias_map = {}
             if all_ids:
@@ -1035,14 +1155,28 @@ with tab_teacher:
                 except Exception:
                     pass
 
-            # Rendering elenco gruppi
+            # ✅ Rendering elenco gruppi
             for g in gruppi_creati:
-                st.markdown(f"**{g.get('nome_gruppo','Gruppo')}**")
+                membri_ids = g.get("membri", [])
                 members_names = [
                     alias_map.get(mid, (mid[:4] if isinstance(mid, str) else str(mid)))
-                    for mid in g["membri"]
+                    for mid in membri_ids
                 ]
+
+                # 🔹 Calcola il tratto predominante per il gruppo
+                try:
+                    trait_info = get_predominant_trait(membri_ids)
+                    team_label = trait_info.get("label", "Team Generale")
+                except Exception as e:
+                    team_label = "Team Generale"
+
+                # 🔹 Mostra nome gruppo con etichetta “Team …”
+                nome_gruppo = g.get("nome_gruppo", "Gruppo")
+                st.markdown(f"**{nome_gruppo} – {team_label}**")
+
+                # 🔹 Mostra elenco membri
                 st.write(", ".join(members_names) if members_names else "—")
+
 
 
 with tab_student:
