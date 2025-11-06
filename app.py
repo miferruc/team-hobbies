@@ -770,7 +770,8 @@ st.sidebar.button("↩️ Riprendi sessione salvata", on_click=resume_teacher_fr
 
 
 # Tab di navigazione principale: Docente vs Studente
-tab_teacher, tab_student = st.tabs(["👩‍🏫 Docente", "👤 Studente"])
+tab_teacher, tab_student, tab_fun = st.tabs(["👩‍🏫 Docente", "👤 Studente", "🎉 Fun"])
+
 
 with tab_teacher:
     """
@@ -878,7 +879,7 @@ with tab_teacher:
                 pin = n.get("code4")
                 alias = n.get("nickname") or "—"
                 stato = "✅" if n.get("id") in ready_ids else "⏳"
-                table_data.append({"Nickname": f"{pin:04d}" if pin is not None else "----", "Alias": alias, "Pronto": stato})
+                table_data.append({"Nickname": f"{pin:05d}" if pin is not None else "----", "Alias": alias, "Pronto": stato})
             st.table(table_data)
         else:
             st.write("Nessuno studente ha ancora scansionato.")
@@ -1361,3 +1362,101 @@ with tab_student:
                     st.write(", ".join(members_display))
                 else:
                     st.info("Non sei ancora assegnato a un gruppo.")
+
+
+with tab_fun:
+    """
+    🎉 Area social e divertimento.
+    In futuro conterrà mini-giochi, quiz e altre attività per far socializzare gli studenti.
+    Per ora mostra le statistiche della sessione attuale con grafici interattivi.
+    """
+    st.header("📊 Statistiche della sessione")
+
+    sessione_corrente = st.session_state.get("student_session_id") or st.session_state.get("teacher_session_id")
+    if not sessione_corrente:
+        st.info("Nessuna sessione attiva. Accedi prima come docente o studente.")
+    else:
+        try:
+            nicknames = get_nicknames_cached(sessione_corrente)
+            ready_ids = get_ready_ids_cached(sessione_corrente)
+            totali = len(nicknames)
+            pronti = len(ready_ids)
+            non_pronti = totali - pronti
+            # 🔹 Pie chart per stato completamento
+            st.subheader("Completamento profili")
+            import plotly.express as px
+            df_status = px.data.tips()  # dummy per palette
+            fig1 = px.pie(
+                names=["Pronti", "Non pronti"],
+                values=[pronti, non_pronti],
+                color=["Pronti", "Non pronti"],
+                color_discrete_map={"Pronti": "#00C49F", "Non pronti": "#FF8042"},
+                title="Percentuale studenti con profilo completato"
+            )
+            fig1.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig1, use_container_width=True)
+
+            # 🔹 Bar chart — distribuzione hobby (se profili disponibili)
+            st.subheader("Distribuzione hobby (studenti pronti)")
+            try:
+                prof_res = supabase.table("profiles").select("hobby").in_("id", list(ready_ids)).execute()
+                hobbies_flat = []
+                for p in (prof_res.data or []):
+                    raw = p.get("hobby")
+                    if isinstance(raw, str):
+                        import json
+                        try:
+                            hobbies_flat.extend(json.loads(raw))
+                        except Exception:
+                            hobbies_flat.append(raw)
+                    elif isinstance(raw, list):
+                        hobbies_flat.extend(raw)
+                import pandas as pd
+                if hobbies_flat:
+                    df_hobby = pd.DataFrame({"Hobby": hobbies_flat})
+                    fig2 = px.histogram(
+                        df_hobby,
+                        x="Hobby",
+                        color="Hobby",
+                        title="Hobby più popolari nella sessione",
+                        color_discrete_sequence=px.colors.qualitative.Vivid,
+                    )
+                    fig2.update_layout(showlegend=False)
+                    st.plotly_chart(fig2, use_container_width=True)
+                else:
+                    st.info("Ancora nessun hobby disponibile per la sessione.")
+            except Exception as e:
+                st.warning(f"Errore nel caricamento hobby: {e}")
+
+            # 🔹 Donut chart — distribuzione obiettivi
+            st.subheader("Distribuzione obiettivi")
+            try:
+                prof_res = supabase.table("profiles").select("obiettivi").in_("id", list(ready_ids)).execute()
+                goals_flat = []
+                for p in (prof_res.data or []):
+                    raw = p.get("obiettivi")
+                    if isinstance(raw, str):
+                        import json
+                        try:
+                            goals_flat.extend(json.loads(raw))
+                        except Exception:
+                            goals_flat.append(raw)
+                    elif isinstance(raw, list):
+                        goals_flat.extend(raw)
+                if goals_flat:
+                    df_goal = pd.DataFrame({"Obiettivo": goals_flat})
+                    fig3 = px.pie(
+                        df_goal,
+                        names="Obiettivo",
+                        hole=0.5,
+                        color_discrete_sequence=px.colors.qualitative.Pastel,
+                        title="Obiettivi accademici più comuni"
+                    )
+                    st.plotly_chart(fig3, use_container_width=True)
+                else:
+                    st.info("Ancora nessun obiettivo registrato.")
+            except Exception as e:
+                st.warning(f"Errore nel caricamento obiettivi: {e}")
+        except Exception as e:
+            st.error(f"Errore durante la generazione dei grafici: {e}")
+
