@@ -1368,7 +1368,7 @@ with tab_fun:
     """
     🎉 Area social e divertimento.
     In futuro conterrà mini-giochi, quiz e altre attività per far socializzare gli studenti.
-    Per ora mostra le statistiche della sessione attuale con grafici interattivi.
+    Per ora mostra le statistiche della sessione attuale con grafici interattivi e progressi individuali.
     """
     st.header("📊 Statistiche della sessione")
 
@@ -1377,86 +1377,199 @@ with tab_fun:
         st.info("Nessuna sessione attiva. Accedi prima come docente o studente.")
     else:
         try:
+            import pandas as pd
+            import plotly.express as px
+            import plotly.graph_objects as go
+            import json
+
             nicknames = get_nicknames_cached(sessione_corrente)
             ready_ids = get_ready_ids_cached(sessione_corrente)
             totali = len(nicknames)
             pronti = len(ready_ids)
             non_pronti = totali - pronti
-            # 🔹 Pie chart per stato completamento
-            st.subheader("Completamento profili")
-            import plotly.express as px
-            df_status = px.data.tips()  # dummy per palette
-            fig1 = px.pie(
-                names=["Pronti", "Non pronti"],
-                values=[pronti, non_pronti],
-                color=["Pronti", "Non pronti"],
-                color_discrete_map={"Pronti": "#00C49F", "Non pronti": "#FF8042"},
-                title="Percentuale studenti con profilo completato"
-            )
-            fig1.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig1, use_container_width=True)
 
-            # 🔹 Bar chart — distribuzione hobby (se profili disponibili)
-            st.subheader("Distribuzione hobby (studenti pronti)")
+            # ---------------------------------------------------------
+            # 🔸 Barra di completamento profilo
+            # ---------------------------------------------------------
+            st.subheader("Completamento profili individuali")
+            prof_res = supabase.table("profiles").select("*").in_("id", list(ready_ids)).execute()
+            completions = []
+            for p in (prof_res.data or []):
+                fields = ["approccio", "hobby", "materie_fatte", "materie_dafare", "obiettivi", "future_role"]
+                filled = sum(1 for f in fields if p.get(f))
+                percent = int((filled / len(fields)) * 100)
+                completions.append({"id": p["id"], "completamento": percent})
+
+            if completions:
+                df_comp = pd.DataFrame(completions)
+                fig_bar = px.bar(
+                    df_comp,
+                    x="id",
+                    y="completamento",
+                    color="completamento",
+                    color_continuous_scale=px.colors.sequential.Tealgrn,
+                    title="Percentuale di completamento dei profili",
+                )
+                fig_bar.update_layout(
+                    xaxis_title="Studente",
+                    yaxis_title="Completamento (%)",
+                    template="plotly_dark",
+                    height=400,
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("Nessun profilo ancora compilato.")
+
+            # ---------------------------------------------------------
+            # 🔹 Grafico approccio al lavoro di gruppo
+            # ---------------------------------------------------------
+            st.subheader("Approccio al lavoro di gruppo")
             try:
-                prof_res = supabase.table("profiles").select("hobby").in_("id", list(ready_ids)).execute()
-                hobbies_flat = []
-                for p in (prof_res.data or []):
-                    raw = p.get("hobby")
-                    if isinstance(raw, str):
-                        import json
-                        try:
-                            hobbies_flat.extend(json.loads(raw))
-                        except Exception:
-                            hobbies_flat.append(raw)
-                    elif isinstance(raw, list):
-                        hobbies_flat.extend(raw)
-                import pandas as pd
-                if hobbies_flat:
-                    df_hobby = pd.DataFrame({"Hobby": hobbies_flat})
-                    fig2 = px.histogram(
-                        df_hobby,
-                        x="Hobby",
-                        color="Hobby",
-                        title="Hobby più popolari nella sessione",
+                df = pd.DataFrame(prof_res.data)
+                if "approccio" in df.columns and not df["approccio"].isna().all():
+                    fig = px.histogram(
+                        df,
+                        x="approccio",
+                        color="approccio",
+                        title="Distribuzione dell'approccio al lavoro di gruppo",
                         color_discrete_sequence=px.colors.qualitative.Vivid,
                     )
-                    fig2.update_layout(showlegend=False)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    fig.update_layout(showlegend=False, template="plotly_dark")
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("Ancora nessun hobby disponibile per la sessione.")
+                    st.info("Nessun dato sull'approccio disponibile.")
             except Exception as e:
-                st.warning(f"Errore nel caricamento hobby: {e}")
+                st.warning(f"Errore nel grafico approccio: {e}")
 
-            # 🔹 Donut chart — distribuzione obiettivi
-            st.subheader("Distribuzione obiettivi")
-            try:
-                prof_res = supabase.table("profiles").select("obiettivi").in_("id", list(ready_ids)).execute()
-                goals_flat = []
-                for p in (prof_res.data or []):
-                    raw = p.get("obiettivi")
-                    if isinstance(raw, str):
-                        import json
-                        try:
-                            goals_flat.extend(json.loads(raw))
-                        except Exception:
-                            goals_flat.append(raw)
-                    elif isinstance(raw, list):
-                        goals_flat.extend(raw)
-                if goals_flat:
-                    df_goal = pd.DataFrame({"Obiettivo": goals_flat})
-                    fig3 = px.pie(
-                        df_goal,
-                        names="Obiettivo",
-                        hole=0.5,
-                        color_discrete_sequence=px.colors.qualitative.Pastel,
-                        title="Obiettivi accademici più comuni"
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
-                else:
-                    st.info("Ancora nessun obiettivo registrato.")
-            except Exception as e:
-                st.warning(f"Errore nel caricamento obiettivi: {e}")
+            # ---------------------------------------------------------
+            # 🔹 Grafico hobby
+            # ---------------------------------------------------------
+            st.subheader("Distribuzione hobby")
+            hobbies_flat = []
+            for p in (prof_res.data or []):
+                raw = p.get("hobby")
+                if isinstance(raw, str):
+                    try:
+                        hobbies_flat.extend(json.loads(raw))
+                    except Exception:
+                        hobbies_flat.append(raw)
+                elif isinstance(raw, list):
+                    hobbies_flat.extend(raw)
+            if hobbies_flat:
+                df_hobby = pd.DataFrame({"Hobby": hobbies_flat})
+                fig_hobby = px.histogram(
+                    df_hobby,
+                    x="Hobby",
+                    color="Hobby",
+                    title="Hobby più popolari nella sessione",
+                    color_discrete_sequence=px.colors.qualitative.Pastel1,
+                )
+                fig_hobby.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_hobby, use_container_width=True)
+            else:
+                st.info("Ancora nessun hobby disponibile.")
+
+            # ---------------------------------------------------------
+            # 🔹 Materie già superate
+            # ---------------------------------------------------------
+            st.subheader("Materie già superate")
+            subjects_done = []
+            for p in (prof_res.data or []):
+                raw = p.get("materie_fatte")
+                if isinstance(raw, str):
+                    try:
+                        subjects_done.extend(json.loads(raw))
+                    except Exception:
+                        subjects_done.append(raw)
+                elif isinstance(raw, list):
+                    subjects_done.extend(raw)
+            if subjects_done:
+                df_done = pd.DataFrame({"Materia": subjects_done})
+                fig_done = px.histogram(
+                    df_done,
+                    x="Materia",
+                    color="Materia",
+                    title="Materie già superate",
+                    color_discrete_sequence=px.colors.qualitative.Set3,
+                )
+                fig_done.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_done, use_container_width=True)
+            else:
+                st.info("Nessuna materia superata registrata.")
+
+            # ---------------------------------------------------------
+            # 🔹 Materie da fare
+            # ---------------------------------------------------------
+            st.subheader("Materie da fare")
+            subjects_todo = []
+            for p in (prof_res.data or []):
+                raw = p.get("materie_dafare")
+                if isinstance(raw, str):
+                    try:
+                        subjects_todo.extend(json.loads(raw))
+                    except Exception:
+                        subjects_todo.append(raw)
+                elif isinstance(raw, list):
+                    subjects_todo.extend(raw)
+            if subjects_todo:
+                df_todo = pd.DataFrame({"Materia": subjects_todo})
+                fig_todo = px.bar(
+                    df_todo,
+                    x="Materia",
+                    color="Materia",
+                    title="Materie ancora da completare",
+                    color_discrete_sequence=px.colors.qualitative.Safe,
+                )
+                fig_todo.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_todo, use_container_width=True)
+            else:
+                st.info("Nessuna materia da fare registrata.")
+
+            # ---------------------------------------------------------
+            # 🔹 Obiettivi accademici
+            # ---------------------------------------------------------
+            st.subheader("Obiettivi accademici")
+            goals_flat = []
+            for p in (prof_res.data or []):
+                raw = p.get("obiettivi")
+                if isinstance(raw, str):
+                    try:
+                        goals_flat.extend(json.loads(raw))
+                    except Exception:
+                        goals_flat.append(raw)
+                elif isinstance(raw, list):
+                    goals_flat.extend(raw)
+            if goals_flat:
+                df_goals = pd.DataFrame({"Obiettivo": goals_flat})
+                fig_goals = px.pie(
+                    df_goals,
+                    names="Obiettivo",
+                    hole=0.5,
+                    color_discrete_sequence=px.colors.qualitative.Prism,
+                    title="Distribuzione obiettivi accademici"
+                )
+                fig_goals.update_traces(textinfo="percent+label")
+                st.plotly_chart(fig_goals, use_container_width=True)
+            else:
+                st.info("Nessun obiettivo disponibile.")
+
+            # ---------------------------------------------------------
+            # 🔹 Dove mi vedo fra 5 anni
+            # ---------------------------------------------------------
+            st.subheader("Visione futura (5 anni)")
+            futures = [p.get("future_role") for p in (prof_res.data or []) if p.get("future_role")]
+            if futures:
+                df_future = pd.DataFrame({"Ruolo futuro": futures})
+                fig_future = px.bar(
+                    df_future,
+                    x="Ruolo futuro",
+                    color="Ruolo futuro",
+                    title="Dove si vedono gli studenti fra 5 anni",
+                    color_discrete_sequence=px.colors.qualitative.Vivid,
+                )
+                fig_future.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_future, use_container_width=True)
+            else:
+                st.info("Nessun dato sulla visione futura.")
         except Exception as e:
             st.error(f"Errore durante la generazione dei grafici: {e}")
-
