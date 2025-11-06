@@ -894,14 +894,19 @@ with tab_teacher:
 
 
         # ---------------------------------------------------------
-        # PESI DI MATCHING
+        # PESI DI MATCHING (menu a tendina)
         # ---------------------------------------------------------
-        st.subheader("Pesi per il matching")
-        peso_hobby = st.slider("Peso hobby", 0.0, 1.0, 0.7, 0.05)
-        peso_approccio = st.slider("Peso approccio", 0.0, 1.0, 0.3, 0.05)
-        peso_materie = st.slider("Peso materie", 0.0, 1.0, 0.3, 0.05)
-        peso_obiettivi = st.slider("Peso obiettivi", 0.0, 1.0, 0.3, 0.05)
-        peso_future_role = st.slider("Peso ruolo futuro", 0.0, 1.0, 0.3, 0.05)
+        with st.expander("⚖️ Mostra/Chiudi impostazioni pesi di matching", expanded=False):
+            st.subheader("Pesi per il matching")
+            st.caption("Regola l'importanza relativa di ciascun parametro per il calcolo dei gruppi.")
+
+            peso_hobby = st.slider("Peso hobby", 0.0, 1.0, 0.7, 0.05)
+            peso_approccio = st.slider("Peso approccio", 0.0, 1.0, 0.3, 0.05)
+            peso_materie = st.slider("Peso materie", 0.0, 1.0, 0.3, 0.05)
+            peso_obiettivi = st.slider("Peso obiettivi", 0.0, 1.0, 0.3, 0.05)
+            peso_future_role = st.slider("Peso ruolo futuro", 0.0, 1.0, 0.3, 0.05)
+
+        # ✅ I valori restano disponibili fuori dal menu
         weights = {
             "hobby": peso_hobby,
             "approccio": peso_approccio,
@@ -909,6 +914,7 @@ with tab_teacher:
             "obiettivi": peso_obiettivi,
             "future_role": peso_future_role,
         }
+
 
         # ---------------------------------------------------------
         # BOTTONI DOCENTE
