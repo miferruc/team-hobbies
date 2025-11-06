@@ -1368,7 +1368,7 @@ with tab_fun:
     """
     🎉 Area social e divertimento.
     In futuro conterrà mini-giochi, quiz e altre attività per far socializzare gli studenti.
-    Per ora mostra le statistiche della sessione attuale con grafici interattivi e progressi individuali.
+    Per ora mostra le statistiche della sessione attuale con grafici interattivi.
     """
     st.header("📊 Statistiche della sessione")
 
@@ -1379,46 +1379,49 @@ with tab_fun:
         try:
             import pandas as pd
             import plotly.express as px
-            import plotly.graph_objects as go
             import json
 
+            # ---------------------------------------------------------
+            # 📋 DATI BASE
+            # ---------------------------------------------------------
             nicknames = get_nicknames_cached(sessione_corrente)
             ready_ids = get_ready_ids_cached(sessione_corrente)
             totali = len(nicknames)
             pronti = len(ready_ids)
             non_pronti = totali - pronti
+            completion_rate = round((pronti / totali) * 100, 1) if totali > 0 else 0
 
             # ---------------------------------------------------------
-            # 🔸 Barra di completamento profilo
+            # 📊 CARD RIASSUNTIVE
             # ---------------------------------------------------------
-            st.subheader("Completamento profili individuali")
+            st.subheader("📈 Riepilogo sessione")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(label="🎓 Totale studenti", value=totali)
+            with col2:
+                st.metric(label="✅ Profili completati", value=pronti)
+            with col3:
+                st.metric(label="📈 Percentuale completamento", value=f"{completion_rate}%")
+
+            # ---------------------------------------------------------
+            # 🔹 Grafico stato completamento
+            # ---------------------------------------------------------
+            st.subheader("Completamento complessivo")
+            fig1 = px.pie(
+                names=["Pronti", "Non pronti"],
+                values=[pronti, non_pronti],
+                color=["Pronti", "Non pronti"],
+                color_discrete_map={"Pronti": "#00C49F", "Non pronti": "#FF8042"},
+                title="Percentuale studenti con profilo completato"
+            )
+            fig1.update_traces(textposition="inside", textinfo="percent+label")
+            fig1.update_layout(template="plotly_dark", height=400)
+            st.plotly_chart(fig1, use_container_width=True)
+
+            # ---------------------------------------------------------
+            # 🔹 Caricamento profili
+            # ---------------------------------------------------------
             prof_res = supabase.table("profiles").select("*").in_("id", list(ready_ids)).execute()
-            completions = []
-            for p in (prof_res.data or []):
-                fields = ["approccio", "hobby", "materie_fatte", "materie_dafare", "obiettivi", "future_role"]
-                filled = sum(1 for f in fields if p.get(f))
-                percent = int((filled / len(fields)) * 100)
-                completions.append({"id": p["id"], "completamento": percent})
-
-            if completions:
-                df_comp = pd.DataFrame(completions)
-                fig_bar = px.bar(
-                    df_comp,
-                    x="id",
-                    y="completamento",
-                    color="completamento",
-                    color_continuous_scale=px.colors.sequential.Tealgrn,
-                    title="Percentuale di completamento dei profili",
-                )
-                fig_bar.update_layout(
-                    xaxis_title="Studente",
-                    yaxis_title="Completamento (%)",
-                    template="plotly_dark",
-                    height=400,
-                )
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                st.info("Nessun profilo ancora compilato.")
 
             # ---------------------------------------------------------
             # 🔹 Grafico approccio al lavoro di gruppo
@@ -1549,12 +1552,13 @@ with tab_fun:
                     title="Distribuzione obiettivi accademici"
                 )
                 fig_goals.update_traces(textinfo="percent+label")
+                fig_goals.update_layout(template="plotly_dark")
                 st.plotly_chart(fig_goals, use_container_width=True)
             else:
                 st.info("Nessun obiettivo disponibile.")
 
             # ---------------------------------------------------------
-            # 🔹 Dove mi vedo fra 5 anni
+            # 🔹 Visione futura
             # ---------------------------------------------------------
             st.subheader("Visione futura (5 anni)")
             futures = [p.get("future_role") for p in (prof_res.data or []) if p.get("future_role")]
