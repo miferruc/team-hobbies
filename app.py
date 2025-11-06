@@ -802,7 +802,9 @@ with tab_teacher:
 
                 cookies["teacher_session_id"] = sid
                 cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                cookies.save()
+                cookies.save(key=f"sync_cookies_{sid}")
+
+
 
 
                 # Stato pubblicazione
@@ -1157,7 +1159,8 @@ with tab_student:
                                 cookies["student_nickname_id"] = new_nick["id"]
                                 cookies["student_pin"] = st.session_state["student_pin"]
                                 cookies["student_session_expiry"] = str(datetime.now() + timedelta(hours=6))
-                                cookies.save()
+                                cookies.save(key=f"sync_cookies_{session_id_input}")
+
 
                                 st.success(f"Nickname assegnato automaticamente: {st.session_state['student_pin']}")
                         except Exception as e:
