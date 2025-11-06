@@ -1364,7 +1364,7 @@ with tab_student:
                     st.info("Non sei ancora assegnato a un gruppo.")
 
 
-wwith tab_fun:
+with tab_fun:
     """
     🎉 Area social e divertimento.
     In futuro conterrà mini-giochi, quiz e altre attività per far socializzare gli studenti.
@@ -1489,4 +1489,75 @@ wwith tab_fun:
             # ---------------------------------------------------------
             st.subheader("Materie da fare")
             subjects_todo = []
-            for p in (p
+            for p in (prof_res.data or []):
+                raw = p.get("materie_dafare")
+                if isinstance(raw, str):
+                    try:
+                        subjects_todo.extend(json.loads(raw))
+                    except Exception:
+                        subjects_todo.append(raw)
+                elif isinstance(raw, list):
+                    subjects_todo.extend(raw)
+            if subjects_todo:
+                df_todo = pd.DataFrame({"Materia": subjects_todo})
+                fig_todo = px.bar(
+                    df_todo,
+                    x="Materia",
+                    color="Materia",
+                    title="Materie ancora da completare",
+                    color_discrete_sequence=px.colors.qualitative.Safe,
+                )
+                fig_todo.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_todo, use_container_width=True)
+            else:
+                st.info("Nessuna materia da fare registrata.")
+
+            # ---------------------------------------------------------
+            # 🔹 Obiettivi accademici
+            # ---------------------------------------------------------
+            st.subheader("Obiettivi accademici")
+            goals_flat = []
+            for p in (prof_res.data or []):
+                raw = p.get("obiettivi")
+                if isinstance(raw, str):
+                    try:
+                        goals_flat.extend(json.loads(raw))
+                    except Exception:
+                        goals_flat.append(raw)
+                elif isinstance(raw, list):
+                    goals_flat.extend(raw)
+            if goals_flat:
+                df_goals = pd.DataFrame({"Obiettivo": goals_flat})
+                fig_goals = px.pie(
+                    df_goals,
+                    names="Obiettivo",
+                    hole=0.5,
+                    color_discrete_sequence=px.colors.qualitative.Prism,
+                    title="Distribuzione obiettivi accademici"
+                )
+                fig_goals.update_traces(textinfo="percent+label")
+                fig_goals.update_layout(template="plotly_dark")
+                st.plotly_chart(fig_goals, use_container_width=True)
+            else:
+                st.info("Nessun obiettivo disponibile.")
+
+            # ---------------------------------------------------------
+            # 🔹 Visione futura
+            # ---------------------------------------------------------
+            st.subheader("Visione futura (5 anni)")
+            futures = [p.get("future_role") for p in (prof_res.data or []) if p.get("future_role")]
+            if futures:
+                df_future = pd.DataFrame({"Ruolo futuro": futures})
+                fig_future = px.bar(
+                    df_future,
+                    x="Ruolo futuro",
+                    color="Ruolo futuro",
+                    title="Dove si vedono gli studenti fra 5 anni",
+                    color_discrete_sequence=px.colors.qualitative.Vivid,
+                )
+                fig_future.update_layout(showlegend=False, template="plotly_dark")
+                st.plotly_chart(fig_future, use_container_width=True)
+            else:
+                st.info("Nessun dato sulla visione futura.")
+        except Exception as e:
+            st.error(f"Errore durante la generazione dei grafici: {e}")
